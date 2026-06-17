@@ -1,0 +1,32 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd /var/www/atelier-faille-upload
+            git fetch --all
+            git reset --hard origin/main
+            npm ci
+            npm run build
+            sudo systemctl restart atelier-faille-upload
+            sudo systemctl is-active --quiet atelier-faille-upload

@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    @apply font-sans bg-slate-50 text-slate-900 antialiased selection:bg-indigo-100;
+  }
+}
+
+.input {
+  @apply w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 bg-white text-slate-900 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400;
+}
+
+/* Custom animated gradient for beautiful automation visual indicator */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-glow-border {
+  background: linear-gradient(270deg, #f59e0b, #ec4899, #3b82f6, #10b981);
+  background-size: 800% 800%;
+  animation: gradient-shift 12s ease infinite;
+}
+
+/* Custom scrollbar utility */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+

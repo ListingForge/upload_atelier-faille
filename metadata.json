@@ -1,0 +1,6 @@
+{
+  "name": "Printify Shopify Automator",
+  "description": "Automate product generation, mockup creations, and SEO listings from Printify to Shopify with intelligent design suggestions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

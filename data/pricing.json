@@ -1,0 +1,19 @@
+{
+  "currency": "EUR",
+  "stretched": [
+    { "code": "XS",  "label": "12\"×18\" (30×46cm)",   "production": 17.45,  "shipping": 11.73,  "shopifyFee": 2.23,  "retail": 89  },
+    { "code": "S",   "label": "16\"×24\" (41×61cm)",   "production": 28.34,  "shipping": 14.55,  "shopifyFee": 3.23,  "retail": 129 },
+    { "code": "M",   "label": "20\"×30\" (51×76cm)",   "production": 28.93,  "shipping": 14.55,  "shopifyFee": 3.98,  "retail": 159 },
+    { "code": "L",   "label": "24\"×36\" (61×91cm)",   "production": 37.24,  "shipping": 15.82,  "shopifyFee": 5.48,  "retail": 219 },
+    { "code": "XL",  "label": "32\"×48\" (81×122cm)",  "production": 80.36,  "shipping": 42.40,  "shopifyFee": 8.22,  "retail": 329 },
+    { "code": "XXL", "label": "40\"×60\" (102×152cm)", "production": 122.99, "shipping": 115.29, "shopifyFee": 12.48, "retail": 499 }
+  ],
+  "framed": [
+    { "code": "XS",  "label": "12\"×18\" (30×46cm)",   "production": 38.76,  "shipping": 14.00,  "shopifyFee": 3.73,  "retail": 149 },
+    { "code": "S",   "label": "16\"×24\" (41×61cm)",   "production": 48.02,  "shipping": 16.37,  "shopifyFee": 4.73,  "retail": 189 },
+    { "code": "M",   "label": "20\"×30\" (51×76cm)",   "production": 58.06,  "shipping": 16.37,  "shopifyFee": 5.48,  "retail": 219 },
+    { "code": "L",   "label": "24\"×36\" (61×91cm)",   "production": 75.64,  "shipping": 16.37,  "shopifyFee": 6.98,  "retail": 279 },
+    { "code": "XL",  "label": "32\"×48\" (81×122cm)",  "production": 75.47,  "shipping": 115.29, "shopifyFee": 9.73,  "retail": 389 },
+    { "code": "XXL", "label": "40\"×60\" (102×152cm)", "production": 168.52, "shipping": 115.29, "shopifyFee": 13.98, "retail": 559 }
+  ]
+}
