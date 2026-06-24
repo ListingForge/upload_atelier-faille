@@ -203,6 +203,31 @@ export function createPrintifyRouter(): Router {
     console.warn(`[Printify] waitForProductMockups timed out for ${productId}, continuing anyway.`);
   }
 
+  // Poll Printify until the Shopify-side product ID is available (Printify pushes it after publish).
+  router.get("/products/:id/shopify-id", async (req, res) => {
+    try {
+      const id = req.params.id;
+      const maxWaitMs = 60_000;
+      const start = Date.now();
+      let interval = 3_000;
+      while (Date.now() - start < maxWaitMs) {
+        const product = await pf<any>(`/shops/${shopId()}/products/${id}.json`);
+        const ext = product?.external?.id;
+        const handle = product?.external?.handle;
+        if (ext) {
+          const numeric = String(ext);
+          const gid = numeric.startsWith("gid://") ? numeric : `gid://shopify/Product/${numeric}`;
+          return res.json({ shopifyProductId: gid, externalId: numeric, handle });
+        }
+        await new Promise(r => setTimeout(r, interval));
+        interval = Math.min(interval + 1_000, 8_000);
+      }
+      res.status(504).json({ error: "shopify product id not available yet" });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Confirm publish (Printify expects /publishing_succeeded after webhook normally; here we call it directly
   // because we publish via Shopify Admin API ourselves).
   router.post("/products/:id/publishing_succeeded", async (req, res) => {

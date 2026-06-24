@@ -141,12 +141,59 @@ export function createShopifyRouter(): Router {
     }
   });
 
-  // Add an image to a product. Accepts { src } (URL) or { dataUrl } (base64).
+  // Add an image to a product. Accepts { src } (publicly reachable URL) or { dataUrl, filename } (base64).
   router.post("/products/:id/images", async (req, res) => {
     try {
       const id = req.params.id;
-      const { src } = req.body || {};
-      if (!src) return res.status(400).json({ error: "src URL required" });
+      const { src, dataUrl, filename } = req.body || {};
+      if (!src && !dataUrl) return res.status(400).json({ error: "src URL or dataUrl required" });
+
+      let originalSource = src as string | undefined;
+
+      if (!originalSource && dataUrl) {
+        const m = /^data:(.+?);base64,(.+)$/.exec(String(dataUrl));
+        if (!m) return res.status(400).json({ error: "invalid dataUrl" });
+        const mimeType = m[1];
+        const buf = Buffer.from(m[2], "base64");
+        const name = String(filename || `mockup-${Date.now()}.${(mimeType.split("/")[1] || "png").split(";")[0]}`);
+
+        const staged = await gql<any>(
+          `mutation StagedUploadsCreate($input: [StagedUploadInput!]!) {
+            stagedUploadsCreate(input: $input) {
+              stagedTargets { url resourceUrl parameters { name value } }
+              userErrors { field message }
+            }
+          }`,
+          {
+            input: [
+              {
+                resource: "IMAGE",
+                filename: name,
+                mimeType,
+                httpMethod: "POST",
+                fileSize: String(buf.length),
+              },
+            ],
+          }
+        );
+        const target = staged?.stagedUploadsCreate?.stagedTargets?.[0];
+        const stagedErrors = staged?.stagedUploadsCreate?.userErrors;
+        if (stagedErrors?.length) return res.status(400).json({ error: stagedErrors });
+        if (!target) return res.status(500).json({ error: "no staged target" });
+
+        const fd = new FormData();
+        for (const p of target.parameters as Array<{ name: string; value: string }>) {
+          fd.append(p.name, p.value);
+        }
+        fd.append("file", new Blob([buf], { type: mimeType }), name);
+        const upR = await fetch(target.url, { method: "POST", body: fd as any });
+        if (!upR.ok) {
+          return res.status(500).json({ error: `staged upload ${upR.status}: ${await upR.text()}` });
+        }
+
+        originalSource = target.resourceUrl;
+      }
+
       const data = await gql<any>(
         `mutation ProductCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
           productCreateMedia(productId: $productId, media: $media) {
@@ -156,7 +203,7 @@ export function createShopifyRouter(): Router {
         }`,
         {
           productId: id,
-          media: [{ originalSource: src, mediaContentType: "IMAGE" }],
+          media: [{ originalSource, mediaContentType: "IMAGE" }],
         }
       );
       const userErrors = data?.productCreateMedia?.mediaUserErrors;

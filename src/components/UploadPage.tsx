@@ -181,6 +181,40 @@ export default function UploadPage() {
         });
         if (!pubR.ok) throw new Error(`Printify publish (${type}): ${await pubR.text()}`);
         log(id, `${type}: an Shopify gepublisht (ohne Auto-Mockups)`);
+
+        // 5) Hänge die generierten Mockups als Shopify-Produktbilder an
+        try {
+          const idR = await fetch(`/api/printify/products/${pr.id}/shopify-id`, { credentials: "include" });
+          if (!idR.ok) {
+            log(id, `${type}: Shopify-Produkt-ID nicht ermittelbar — Mockups übersprungen`);
+          } else {
+            const { shopifyProductId } = await idR.json();
+            log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
+            for (let i = 0; i < out.length; i++) {
+              const m = out[i];
+              let dataUrl = m.src;
+              if (!dataUrl.startsWith("data:")) {
+                const blob = await fetchBlob(dataUrl);
+                dataUrl = await new Promise<string>((resolve, reject) => {
+                  const r = new FileReader();
+                  r.onload = () => resolve(String(r.result));
+                  r.onerror = reject;
+                  r.readAsDataURL(blob);
+                });
+              }
+              const imgR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/images`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ dataUrl, filename: `${item.title}-${type}-${i + 1}.png` }),
+              });
+              if (!imgR.ok) log(id, `Mockup ${i + 1} (${type}) Shopify-Upload fehlgeschlagen: ${await imgR.text()}`);
+            }
+            log(id, `${type}: Mockups in Shopify abgelegt`);
+          }
+        } catch (e: any) {
+          log(id, `${type}: Shopify-Mockup-Upload Fehler: ${e.message}`);
+        }
       }
       updateItem(id, { stage: "done", shopifyProductIds: productIds });
     } catch (e: any) {
