@@ -176,20 +176,28 @@ export default function UploadPage() {
           out.push({ src: `/api/mockups/${orientation}/${m.id}/file`, itemId: m.id });
           continue;
         }
-        try {
-          const psdBlob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
-          log(id, `Rendere ${m.originalName}…`);
-          const { blob } = await renderer.render({ psd: psdBlob, image: renderImage });
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const r = new FileReader();
-            r.onload = () => resolve(String(r.result));
-            r.onerror = reject;
-            r.readAsDataURL(blob);
-          });
-          out.push({ src: dataUrl, itemId: m.id });
-        } catch (e: any) {
-          log(id, `Mockup ${m.originalName} fehlgeschlagen: ${e.message}`);
+        const psdBlob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
+        let lastErr: any = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            log(id, attempt === 1 ? `Rendere ${m.originalName}…` : `Wiederhole ${m.originalName}…`);
+            const { blob } = await renderer.render({ psd: psdBlob, image: renderImage });
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const r = new FileReader();
+              r.onload = () => resolve(String(r.result));
+              r.onerror = reject;
+              r.readAsDataURL(blob);
+            });
+            out.push({ src: dataUrl, itemId: m.id });
+            lastErr = null;
+            break;
+          } catch (e: any) {
+            lastErr = e;
+            if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+          }
         }
+        if (lastErr) log(id, `Mockup ${m.originalName} fehlgeschlagen: ${lastErr.message}`);
+        await new Promise(r => setTimeout(r, 100));
       }
       updateItem(id, { generatedMockups: out });
 

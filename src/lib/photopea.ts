@@ -174,21 +174,21 @@ class PhotopeaRenderer {
     }
 
     const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.left = "-10000px";
-    iframe.style.top = "0";
-    iframe.style.width = "1200px";
-    iframe.style.height = "800px";
+    iframe.style.position = "absolute";
+    iframe.style.width = "1px";
+    iframe.style.height = "1px";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
     iframe.style.border = "0";
     iframe.setAttribute("aria-hidden", "true");
-    iframe.src = `${PHOTOPEA_ORIGIN}#${encodeURIComponent(
-      JSON.stringify({ environment: { vmode: 3 }, files: [] })
-    )}`;
+    iframe.setAttribute("allow", "cross-origin-isolated");
+    // hash-only config (no `vmode: 3`, no preloaded files) — Photopea boots into editor mode cleanly
+    iframe.src = `${PHOTOPEA_ORIGIN}#${encodeURIComponent(JSON.stringify({ environment: {} }))}`;
     document.body.appendChild(iframe);
     this.iframe = iframe;
 
     await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("Photopea load timeout")), 30_000);
+      const t = setTimeout(() => reject(new Error("Photopea load timeout")), 90_000);
       const onMessage = (e: MessageEvent) => {
         try {
           if (e.source !== iframe.contentWindow) return;
