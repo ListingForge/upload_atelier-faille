@@ -160,8 +160,13 @@ class PhotopeaRenderer {
   private queueResolvers: Array<() => void> = [];
   private inflight = false;
   private keepalive: { stop: () => void } | null = null;
+  private dirty = false; // becomes true after any render error → recreate iframe before next render
 
   private async ensureIframe(): Promise<HTMLIFrameElement> {
+    if (this.dirty) {
+      this.tearDownIframe();
+      this.dirty = false;
+    }
     if (this.iframe && this.ready) return this.iframe;
     if (this.iframe) {
       await new Promise<void>(res => this.queueResolvers.push(res));
@@ -202,7 +207,7 @@ class PhotopeaRenderer {
       window.addEventListener("message", onMessage);
     });
 
-    this.keepalive = startBackgroundKeepalive();
+    if (!this.keepalive) this.keepalive = startBackgroundKeepalive();
     return iframe;
   }
 
@@ -212,6 +217,20 @@ class PhotopeaRenderer {
     try {
       const iframe = await this.ensureIframe();
       const win = iframe.contentWindow!;
+
+      // pre-flight: ensure workspace is empty. If anything from a previous failed render is still open,
+      // Photopea would otherwise count it as a third document and our `docs.length < 2` check would still pass
+      // but pick the wrong indexes.
+      await sendCommand(
+        win,
+        "while(app.documents.length > 0) { try { app.activeDocument.close(SaveOptions.DONOTSAVECHANGES); } catch(e) { break; } }",
+        10_000
+      ).catch(() => {
+        // if cleanup itself fails, mark dirty so we get a fresh iframe next time
+        this.dirty = true;
+        throw new Error("Photopea workspace cleanup failed");
+      });
+
       const psdBuf = await psd.arrayBuffer();
       const imgBuf = await image.arrayBuffer();
 
@@ -221,15 +240,16 @@ class PhotopeaRenderer {
       const script = buildRenderScript(smartObjectLayerName, outputFormat);
       const result = await sendCommand(win, script, 240_000, true);
 
-      // safety cleanup; the render script closes docs but if it crashed we close leftovers
-      await sendCommand(win, "while(app.documents.length > 0) { app.activeDocument.close(SaveOptions.DONOTSAVECHANGES); }", 5_000).catch(() => {});
-
       if (result.buffers.length === 0) throw new Error("Photopea returned no image");
       const lastBuf = result.buffers[result.buffers.length - 1];
       const mime = outputFormat === "png" ? "image/png" : "image/jpeg";
       const blob = new Blob([lastBuf], { type: mime });
       const dims = await readImageDimensions(blob);
       return { blob, width: dims.w, height: dims.h };
+    } catch (err) {
+      // any failure during a render leaves Photopea in an unknown state — force a clean iframe next time
+      this.dirty = true;
+      throw err;
     } finally {
       this.inflight = false;
       const next = this.queueResolvers.shift();
@@ -237,12 +257,16 @@ class PhotopeaRenderer {
     }
   }
 
-  destroy() {
-    this.keepalive?.stop();
-    this.keepalive = null;
+  private tearDownIframe() {
     if (this.iframe?.parentElement) this.iframe.parentElement.removeChild(this.iframe);
     this.iframe = null;
     this.ready = false;
+  }
+
+  destroy() {
+    this.keepalive?.stop();
+    this.keepalive = null;
+    this.tearDownIframe();
   }
 }
 
