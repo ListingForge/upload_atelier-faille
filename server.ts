@@ -14,7 +14,7 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
-app.use(express.json({ limit: "200mb" }));
+app.use(express.json({ limit: "1024mb" }));
 app.use(basicAuth);
 
 const PORT = Number(process.env.PORT) || 3000;

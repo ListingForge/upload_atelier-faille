@@ -209,10 +209,15 @@ export default function UploadPage() {
       }
       updateItem(id, { generatedMockups: out });
 
-      // 2) Upload base image to Printify
+      // 2) Upload base image to Printify (downscaled to keep request body manageable;
+      // 9000 px gives ~150 DPI on the largest canvas size: 60").
       updateItem(id, { stage: "uploading" });
+      const printImage = await downscaleImage(item.file, 9000);
+      if (printImage !== item.file) {
+        log(id, `Master-Bild für Printify auf max 9000 px skaliert (${(printImage.size / 1024 / 1024).toFixed(1)} MB)`);
+      }
       log(id, "Lade Master-Bild zu Printify…");
-      const base64 = await blobToBase64(item.file);
+      const base64 = await blobToBase64(printImage);
       const upR = await fetch("/api/printify/uploads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
