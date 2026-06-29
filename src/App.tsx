@@ -14,7 +14,7 @@ const NAV: { id: Tab; label: string; icon: ComponentType<{ className?: string }>
 ];
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("mockups");
+  const [tab, setTab] = useState<Tab>("upload");
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 font-sans">
