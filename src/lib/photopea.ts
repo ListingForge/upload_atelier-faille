@@ -236,6 +236,15 @@ class PhotopeaRenderer {
       const mime = outputFormat === "png" ? "image/png" : "image/jpeg";
       const blob = new Blob([lastBuf], { type: mime });
       const dims = await readImageDimensions(blob);
+
+      // Photopea sometimes returns an empty/black image as a "successful" render
+      // (state leak after many iterations). Detect and force iframe refresh so the
+      // caller's retry gets a fresh editor.
+      if (await isMostlyBlack(blob)) {
+        this.tearDownIframe();
+        throw new Error("Photopea returned a black/empty image — iframe refreshed for retry");
+      }
+
       return { blob, width: dims.w, height: dims.h };
     } finally {
       this.inflight = false;
@@ -254,6 +263,37 @@ class PhotopeaRenderer {
     this.keepalive?.stop();
     this.keepalive = null;
     this.tearDownIframe();
+  }
+}
+
+// Sample ~64 pixels across the image; if >90% are near-black, treat the render as failed.
+async function isMostlyBlack(blob: Blob): Promise<boolean> {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const w = bitmap.width;
+    const h = bitmap.height;
+    if (w === 0 || h === 0) return true;
+    const canvas = typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(w, h)
+      : Object.assign(document.createElement("canvas"), { width: w, height: h });
+    const ctx = (canvas as any).getContext("2d");
+    if (!ctx) {
+      bitmap.close?.();
+      return false;
+    }
+    ctx.drawImage(bitmap, 0, 0);
+    const samples = 64;
+    let dark = 0;
+    for (let i = 0; i < samples; i++) {
+      const x = Math.floor(Math.random() * w);
+      const y = Math.floor(Math.random() * h);
+      const px = ctx.getImageData(x, y, 1, 1).data;
+      if (px[0] + px[1] + px[2] < 30) dark++;
+    }
+    bitmap.close?.();
+    return dark / samples > 0.9;
+  } catch {
+    return false;
   }
 }
 

@@ -184,9 +184,10 @@ export default function UploadPage() {
           continue;
         }
         let lastErr: any = null;
-        for (let attempt = 1; attempt <= 2; attempt++) {
+        const maxAttempts = 3;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           try {
-            log(id, attempt === 1 ? `Rendere ${m.originalName}…` : `Wiederhole ${m.originalName}…`);
+            log(id, attempt === 1 ? `Rendere ${m.originalName}…` : `Wiederhole ${m.originalName} (Versuch ${attempt}/${maxAttempts})…`);
             const { blob } = await renderer.render({ psd: psdBlob, image: renderImage });
             const dataUrl = await new Promise<string>((resolve, reject) => {
               const r = new FileReader();
@@ -199,7 +200,8 @@ export default function UploadPage() {
             break;
           } catch (e: any) {
             lastErr = e;
-            if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+            log(id, `Render-Versuch ${attempt} fehlgeschlagen: ${e.message}`);
+            if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000));
           }
         }
         if (lastErr) log(id, `Mockup ${m.originalName} fehlgeschlagen: ${lastErr.message}`);
