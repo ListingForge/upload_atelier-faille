@@ -42,6 +42,34 @@ async function fetchBlob(url: string): Promise<Blob> {
   return r.blob();
 }
 
+async function downscaleImage(file: Blob, maxEdge: number, mime = "image/jpeg", quality = 0.9): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = url;
+    });
+    const long = Math.max(img.width, img.height);
+    if (long <= maxEdge) return file;
+    const scale = maxEdge / long;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(img, 0, 0, w, h);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(b => (b ? resolve(b) : reject(new Error("toBlob failed"))), mime, quality);
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -106,6 +134,38 @@ export default function UploadPage() {
       updateItem(id, { orientation });
       const list = lists[orientation];
 
+      // Downscale für Photopea + Gemini (Mockup-Auflösung reicht, spart drastisch Zeit)
+      const renderImage = await downscaleImage(item.file, 4500);
+      if (renderImage !== item.file) {
+        log(id, `Bild für Render auf max 4500 px skaliert (${(renderImage.size / 1024 / 1024).toFixed(1)} MB)`);
+      }
+
+      // Gemini parallel zum Rendern starten — Titel ist früh fertig
+      const geminiPromise = (async () => {
+        try {
+          const b64 = await blobToBase64(renderImage);
+          const r = await fetch("/api/gemini/title", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ imageBase64: b64, mimeType: renderImage.type || "image/jpeg" }),
+          });
+          if (!r.ok) {
+            log(id, `Gemini fehlgeschlagen: ${await r.text()}`);
+            return null;
+          }
+          const g: { title?: string; description?: string } = await r.json();
+          if (g.title) {
+            updateItem(id, { title: g.title });
+            log(id, `Titel: „${g.title}"`);
+          }
+          return g;
+        } catch (e: any) {
+          log(id, `Gemini-Fehler: ${e.message}`);
+          return null;
+        }
+      })();
+
       // 1) Run mockups via Photopea
       updateItem(id, { stage: "mockups" });
       log(id, `Generiere ${list.filter(l => l.kind === "psd").length} dynamische Mockups + ${list.filter(l => l.kind === "image").length} statische`);
@@ -119,7 +179,7 @@ export default function UploadPage() {
         try {
           const psdBlob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
           log(id, `Rendere ${m.originalName}…`);
-          const { blob } = await renderer.render({ psd: psdBlob, image: item.file });
+          const { blob } = await renderer.render({ psd: psdBlob, image: renderImage });
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const r = new FileReader();
             r.onload = () => resolve(String(r.result));
@@ -148,29 +208,12 @@ export default function UploadPage() {
       const printifyImageId: string = up.id;
       log(id, `Printify image_id ${printifyImageId}`);
 
-      // 2b) Gemini: customer-friendly Titel + Beschreibung
+      // 2b) Gemini-Ergebnis abwarten (lief parallel zum Rendern)
       let productTitle = item.title;
       let productDescription = `<p>${item.title}</p>`;
-      try {
-        log(id, "Generiere Titel + Beschreibung mit Gemini…");
-        const gR = await fetch("/api/gemini/title", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ imageBase64: base64, mimeType: item.file.type || "image/png" }),
-        });
-        if (gR.ok) {
-          const g: { title?: string; description?: string } = await gR.json();
-          if (g.title) productTitle = g.title;
-          if (g.description) productDescription = `<p>${g.description}</p>`;
-          log(id, `Titel: „${productTitle}"`);
-          updateItem(id, { title: productTitle });
-        } else {
-          log(id, `Gemini-Titel fehlgeschlagen, nutze Dateinamen: ${await gR.text()}`);
-        }
-      } catch (e: any) {
-        log(id, `Gemini-Fehler, nutze Dateinamen: ${e.message}`);
-      }
+      const gemini = await geminiPromise;
+      if (gemini?.title) productTitle = gemini.title;
+      if (gemini?.description) productDescription = `<p>${gemini.description}</p>`;
 
       // 3) Create stretched + framed products
       updateItem(id, { stage: "creating" });

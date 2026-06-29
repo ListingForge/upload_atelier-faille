@@ -215,11 +215,11 @@ class PhotopeaRenderer {
       const psdBuf = await psd.arrayBuffer();
       const imgBuf = await image.arrayBuffer();
 
-      await sendCommand(win, psdBuf, 60_000);
-      await sendCommand(win, imgBuf, 30_000);
+      await sendCommand(win, psdBuf, 120_000);
+      await sendCommand(win, imgBuf, 60_000);
 
       const script = buildRenderScript(smartObjectLayerName, outputFormat);
-      const result = await sendCommand(win, script, 120_000, true);
+      const result = await sendCommand(win, script, 240_000, true);
 
       // safety cleanup; the render script closes docs but if it crashed we close leftovers
       await sendCommand(win, "while(app.documents.length > 0) { app.activeDocument.close(SaveOptions.DONOTSAVECHANGES); }", 5_000).catch(() => {});
