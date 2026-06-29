@@ -8,6 +8,7 @@ import { listShopifyShops, getShopifyToken } from "./src/server/tokenStore";
 import { createMockupsRouter } from "./src/server/mockups";
 import { createPrintifyRouter } from "./src/server/printify";
 import { createShopifyRouter } from "./src/server/shopify";
+import { createGeminiRouter } from "./src/server/gemini";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config();
@@ -42,6 +43,9 @@ app.use("/api/printify", createPrintifyRouter());
 
 // Shopify backend (products list + edit)
 app.use("/api/sh", createShopifyRouter());
+
+// Gemini (image → customer-friendly title + description)
+app.use("/api/gemini", createGeminiRouter());
 
 // Vite & App Entrypoint
 const startServer = async () => {

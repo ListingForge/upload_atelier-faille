@@ -148,6 +148,30 @@ export default function UploadPage() {
       const printifyImageId: string = up.id;
       log(id, `Printify image_id ${printifyImageId}`);
 
+      // 2b) Gemini: customer-friendly Titel + Beschreibung
+      let productTitle = item.title;
+      let productDescription = `<p>${item.title}</p>`;
+      try {
+        log(id, "Generiere Titel + Beschreibung mit Gemini…");
+        const gR = await fetch("/api/gemini/title", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ imageBase64: base64, mimeType: item.file.type || "image/png" }),
+        });
+        if (gR.ok) {
+          const g: { title?: string; description?: string } = await gR.json();
+          if (g.title) productTitle = g.title;
+          if (g.description) productDescription = `<p>${g.description}</p>`;
+          log(id, `Titel: „${productTitle}"`);
+          updateItem(id, { title: productTitle });
+        } else {
+          log(id, `Gemini-Titel fehlgeschlagen, nutze Dateinamen: ${await gR.text()}`);
+        }
+      } catch (e: any) {
+        log(id, `Gemini-Fehler, nutze Dateinamen: ${e.message}`);
+      }
+
       // 3) Create stretched + framed products
       updateItem(id, { stage: "creating" });
       const productIds: string[] = [];
@@ -158,8 +182,8 @@ export default function UploadPage() {
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({
-            title: `${item.title} — ${type === "stretched" ? "Stretched Canvas" : "Framed Canvas"}`,
-            description: "<p>" + item.title + "</p>",
+            title: `${productTitle} — ${type === "stretched" ? "Leinwand" : "Gerahmt"}`,
+            description: productDescription,
             tags: ["canvas", type, orientation],
             type,
             orientation,
@@ -206,7 +230,7 @@ export default function UploadPage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ dataUrl, filename: `${item.title}-${type}-${i + 1}.png` }),
+                body: JSON.stringify({ dataUrl, filename: `${productTitle}-${type}-${i + 1}.png` }),
               });
               if (!imgR.ok) log(id, `Mockup ${i + 1} (${type}) Shopify-Upload fehlgeschlagen: ${await imgR.text()}`);
             }
