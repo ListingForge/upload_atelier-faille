@@ -176,7 +176,13 @@ export default function UploadPage() {
           out.push({ src: `/api/mockups/${orientation}/${m.id}/file`, itemId: m.id });
           continue;
         }
-        const psdBlob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
+        let psdBlob: Blob;
+        try {
+          psdBlob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
+        } catch (e: any) {
+          log(id, `Mockup ${m.originalName} konnte nicht geladen werden: ${e.message}`);
+          continue;
+        }
         let lastErr: any = null;
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
