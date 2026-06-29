@@ -18,10 +18,30 @@ function timingSafeEqual(a: string, b: string): boolean {
   return mismatch === 0;
 }
 
-export function basicAuth(req: Request, res: Response, next: NextFunction) {
+function loadCredentials(): Array<{ user: string; pass: string }> {
+  const creds: Array<{ user: string; pass: string }> = [];
   const user = process.env.BASIC_AUTH_USER;
   const pass = process.env.BASIC_AUTH_PASS;
-  if (!user || !pass) return next();
+  if (user && pass) creds.push({ user, pass });
+
+  // Additional users via BASIC_AUTH_USERS="alice:pw1,bob:pw2"
+  const extra = process.env.BASIC_AUTH_USERS;
+  if (extra) {
+    for (const entry of extra.split(",")) {
+      const idx = entry.indexOf(":");
+      if (idx > 0) {
+        const u = entry.slice(0, idx).trim();
+        const p = entry.slice(idx + 1).trim();
+        if (u && p) creds.push({ user: u, pass: p });
+      }
+    }
+  }
+  return creds;
+}
+
+export function basicAuth(req: Request, res: Response, next: NextFunction) {
+  const creds = loadCredentials();
+  if (creds.length === 0) return next();
   if (isPublic(req)) return next();
 
   const header = req.headers.authorization || "";
@@ -31,7 +51,9 @@ export function basicAuth(req: Request, res: Response, next: NextFunction) {
     if (idx >= 0) {
       const u = decoded.slice(0, idx);
       const p = decoded.slice(idx + 1);
-      if (timingSafeEqual(u, user) && timingSafeEqual(p, pass)) return next();
+      for (const c of creds) {
+        if (timingSafeEqual(u, c.user) && timingSafeEqual(p, c.pass)) return next();
+      }
     }
   }
 
