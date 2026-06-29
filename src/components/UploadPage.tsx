@@ -272,9 +272,11 @@ export default function UploadPage() {
 
         // 5) Hänge die generierten Mockups als Shopify-Produktbilder an
         try {
+          log(id, `${type}: warte auf Printify→Shopify-Push (kann bis zu 5 min dauern)…`);
           const idR = await fetch(`/api/printify/products/${pr.id}/shopify-id`, { credentials: "include" });
           if (!idR.ok) {
-            log(id, `${type}: Shopify-Produkt-ID nicht ermittelbar — Mockups übersprungen`);
+            const errText = await idR.text();
+            log(id, `${type}: Shopify-Produkt-ID nicht ermittelbar — Mockups übersprungen (${errText})`);
           } else {
             const { shopifyProductId } = await idR.json();
             log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);

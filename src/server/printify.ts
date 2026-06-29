@@ -207,22 +207,31 @@ export function createPrintifyRouter(): Router {
   router.get("/products/:id/shopify-id", async (req, res) => {
     try {
       const id = req.params.id;
-      const maxWaitMs = 60_000;
+      const maxWaitMs = 300_000; // Printify can take a few minutes to push, especially under load
       const start = Date.now();
-      let interval = 3_000;
+      let interval = 2_000;
+      let pollCount = 0;
+      let lastSeen: any = null;
       while (Date.now() - start < maxWaitMs) {
         const product = await pf<any>(`/shops/${shopId()}/products/${id}.json`);
+        lastSeen = { external: product?.external, is_locked: product?.is_locked };
         const ext = product?.external?.id;
         const handle = product?.external?.handle;
         if (ext) {
           const numeric = String(ext);
           const gid = numeric.startsWith("gid://") ? numeric : `gid://shopify/Product/${numeric}`;
-          return res.json({ shopifyProductId: gid, externalId: numeric, handle });
+          return res.json({ shopifyProductId: gid, externalId: numeric, handle, waitedMs: Date.now() - start });
         }
+        pollCount++;
         await new Promise(r => setTimeout(r, interval));
-        interval = Math.min(interval + 1_000, 8_000);
+        interval = Math.min(interval + 500, 10_000);
       }
-      res.status(504).json({ error: "shopify product id not available yet" });
+      res.status(504).json({
+        error: "shopify product id not available yet",
+        waitedMs: Date.now() - start,
+        polls: pollCount,
+        lastSeen,
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
