@@ -160,13 +160,7 @@ class PhotopeaRenderer {
   private queueResolvers: Array<() => void> = [];
   private inflight = false;
   private keepalive: { stop: () => void } | null = null;
-  private dirty = false; // becomes true after any render error → recreate iframe before next render
-
   private async ensureIframe(): Promise<HTMLIFrameElement> {
-    if (this.dirty) {
-      this.tearDownIframe();
-      this.dirty = false;
-    }
     if (this.iframe && this.ready) return this.iframe;
     if (this.iframe) {
       await new Promise<void>(res => this.queueResolvers.push(res));
@@ -218,27 +212,21 @@ class PhotopeaRenderer {
       const iframe = await this.ensureIframe();
       const win = iframe.contentWindow!;
 
-      // pre-flight: ensure workspace is empty. If anything from a previous failed render is still open,
-      // Photopea would otherwise count it as a third document and our `docs.length < 2` check would still pass
-      // but pick the wrong indexes.
+      // pre-flight: ensure workspace is empty (no leftover docs from a prior failed render)
       await sendCommand(
         win,
         "while(app.documents.length > 0) { try { app.activeDocument.close(SaveOptions.DONOTSAVECHANGES); } catch(e) { break; } }",
         10_000
-      ).catch(() => {
-        // if cleanup itself fails, mark dirty so we get a fresh iframe next time
-        this.dirty = true;
-        throw new Error("Photopea workspace cleanup failed");
-      });
+      ).catch(() => { /* swallow — render will fail clearly if workspace is truly broken */ });
 
       const psdBuf = await psd.arrayBuffer();
       const imgBuf = await image.arrayBuffer();
 
-      await sendCommand(win, psdBuf, 120_000);
-      await sendCommand(win, imgBuf, 60_000);
+      await sendCommand(win, psdBuf, 60_000);
+      await sendCommand(win, imgBuf, 30_000);
 
       const script = buildRenderScript(smartObjectLayerName, outputFormat);
-      const result = await sendCommand(win, script, 240_000, true);
+      const result = await sendCommand(win, script, 120_000, true);
 
       if (result.buffers.length === 0) throw new Error("Photopea returned no image");
       const lastBuf = result.buffers[result.buffers.length - 1];
@@ -246,10 +234,6 @@ class PhotopeaRenderer {
       const blob = new Blob([lastBuf], { type: mime });
       const dims = await readImageDimensions(blob);
       return { blob, width: dims.w, height: dims.h };
-    } catch (err) {
-      // any failure during a render leaves Photopea in an unknown state — force a clean iframe next time
-      this.dirty = true;
-      throw err;
     } finally {
       this.inflight = false;
       const next = this.queueResolvers.shift();
