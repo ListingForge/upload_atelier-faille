@@ -270,72 +270,76 @@ export default function UploadPage() {
         if (!pubR.ok) throw new Error(`Printify publish (${type}): ${await pubR.text()}`);
         log(id, `${type}: an Shopify gepublisht (ohne Auto-Mockups)`);
 
-        // 5) Hänge die generierten Mockups als Shopify-Produktbilder an
-        try {
-          log(id, `${type}: warte auf Printify→Shopify-Push (kann bis zu 5 min dauern)…`);
-          let shopifyProductId: string | null = null;
-          const pollStart = Date.now();
-          const pollMax = 5 * 60 * 1000;
-          while (Date.now() - pollStart < pollMax) {
-            const idR = await fetch(`/api/printify/products/${pr.id}/shopify-id`, { credentials: "include" });
-            if (idR.ok) {
-              const j = await idR.json();
-              shopifyProductId = j.shopifyProductId;
-              break;
-            }
-            if (idR.status !== 202) {
-              const errText = await idR.text();
-              log(id, `${type}: Shopify-Produkt-ID Fehler (${idR.status}) ${errText.slice(0, 200)}`);
-              break;
-            }
-            await new Promise(r => setTimeout(r, 3000));
+        // 5) Hänge die generierten Mockups als Shopify-Produktbilder an.
+        // Mockups sind der gesamte Sinn des Programms — wenn das nicht klappt,
+        // ist das Produkt unbrauchbar und der Item wird als Fehler markiert.
+        log(id, `${type}: warte auf Printify→Shopify-Push (kann bis zu 15 min dauern)…`);
+        let shopifyProductId: string | null = null;
+        const pollStart = Date.now();
+        const pollMax = 15 * 60 * 1000;
+        while (Date.now() - pollStart < pollMax) {
+          const idR = await fetch(`/api/printify/products/${pr.id}/shopify-id`, { credentials: "include" });
+          if (idR.ok) {
+            const j = await idR.json();
+            shopifyProductId = j.shopifyProductId;
+            break;
           }
-          if (!shopifyProductId) {
-            log(id, `${type}: Shopify-Produkt-ID nicht innerhalb 5 min ermittelbar — Mockups übersprungen`);
+          if (idR.status !== 202) {
+            const errText = await idR.text();
+            throw new Error(`${type}: Shopify-ID Polling-Fehler (${idR.status}): ${errText.slice(0, 200)}`);
+          }
+          await new Promise(r => setTimeout(r, 3000));
+        }
+        if (!shopifyProductId) {
+          throw new Error(`${type}: Printify hat das Produkt nach 15 min nicht zu Shopify gepusht — Mockups nicht angebracht`);
+        }
+        log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
+        let mockupsUploaded = 0;
+        for (let i = 0; i < out.length; i++) {
+          const m = out[i];
+          let dataUrl = m.src;
+          if (!dataUrl.startsWith("data:")) {
+            const blob = await fetchBlob(dataUrl);
+            dataUrl = await new Promise<string>((resolve, reject) => {
+              const r = new FileReader();
+              r.onload = () => resolve(String(r.result));
+              r.onerror = reject;
+              r.readAsDataURL(blob);
+            });
+          }
+          const imgR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/images`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ dataUrl, filename: `${productTitle}-${type}-${i + 1}.png` }),
+          });
+          if (!imgR.ok) {
+            log(id, `Mockup ${i + 1} (${type}) Shopify-Upload fehlgeschlagen: ${await imgR.text()}`);
           } else {
-            log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
-            for (let i = 0; i < out.length; i++) {
-              const m = out[i];
-              let dataUrl = m.src;
-              if (!dataUrl.startsWith("data:")) {
-                const blob = await fetchBlob(dataUrl);
-                dataUrl = await new Promise<string>((resolve, reject) => {
-                  const r = new FileReader();
-                  r.onload = () => resolve(String(r.result));
-                  r.onerror = reject;
-                  r.readAsDataURL(blob);
-                });
-              }
-              const imgR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/images`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ dataUrl, filename: `${productTitle}-${type}-${i + 1}.png` }),
-              });
-              if (!imgR.ok) log(id, `Mockup ${i + 1} (${type}) Shopify-Upload fehlgeschlagen: ${await imgR.text()}`);
-            }
-            log(id, `${type}: Mockups in Shopify abgelegt`);
+            mockupsUploaded++;
+          }
+        }
+        if (mockupsUploaded === 0 && out.length > 0) {
+          throw new Error(`${type}: keiner der ${out.length} Mockups konnte zu Shopify hochgeladen werden`);
+        }
+        log(id, `${type}: ${mockupsUploaded}/${out.length} Mockups in Shopify abgelegt`);
 
-            // Rename Printify's inch labels (e.g. '12" x 18" (Vertical)') to cm.
-            try {
-              const relR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/relabel-sizes-cm`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: "{}",
-              });
-              if (!relR.ok) {
-                log(id, `${type}: cm-Relabel fehlgeschlagen: ${await relR.text()}`);
-              } else {
-                const { updated } = await relR.json();
-                log(id, `${type}: ${updated?.length ?? 0} Varianten-Labels in cm umbenannt`);
-              }
-            } catch (e: any) {
-              log(id, `${type}: cm-Relabel Fehler: ${e.message}`);
-            }
+        // Rename Printify's inch labels (e.g. '12" x 18" (Vertical)') to cm.
+        try {
+          const relR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/relabel-sizes-cm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: "{}",
+          });
+          if (!relR.ok) {
+            log(id, `${type}: cm-Relabel fehlgeschlagen: ${await relR.text()}`);
+          } else {
+            const { updated } = await relR.json();
+            log(id, `${type}: ${updated?.length ?? 0} Varianten-Labels in cm umbenannt`);
           }
         } catch (e: any) {
-          log(id, `${type}: Shopify-Mockup-Upload Fehler: ${e.message}`);
+          log(id, `${type}: cm-Relabel Fehler: ${e.message}`);
         }
       }
       updateItem(id, { stage: "done", shopifyProductIds: productIds });
