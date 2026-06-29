@@ -273,12 +273,26 @@ export default function UploadPage() {
         // 5) Hänge die generierten Mockups als Shopify-Produktbilder an
         try {
           log(id, `${type}: warte auf Printify→Shopify-Push (kann bis zu 5 min dauern)…`);
-          const idR = await fetch(`/api/printify/products/${pr.id}/shopify-id`, { credentials: "include" });
-          if (!idR.ok) {
-            const errText = await idR.text();
-            log(id, `${type}: Shopify-Produkt-ID nicht ermittelbar — Mockups übersprungen (${errText})`);
+          let shopifyProductId: string | null = null;
+          const pollStart = Date.now();
+          const pollMax = 5 * 60 * 1000;
+          while (Date.now() - pollStart < pollMax) {
+            const idR = await fetch(`/api/printify/products/${pr.id}/shopify-id`, { credentials: "include" });
+            if (idR.ok) {
+              const j = await idR.json();
+              shopifyProductId = j.shopifyProductId;
+              break;
+            }
+            if (idR.status !== 202) {
+              const errText = await idR.text();
+              log(id, `${type}: Shopify-Produkt-ID Fehler (${idR.status}) ${errText.slice(0, 200)}`);
+              break;
+            }
+            await new Promise(r => setTimeout(r, 3000));
+          }
+          if (!shopifyProductId) {
+            log(id, `${type}: Shopify-Produkt-ID nicht innerhalb 5 min ermittelbar — Mockups übersprungen`);
           } else {
-            const { shopifyProductId } = await idR.json();
             log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
             for (let i = 0; i < out.length; i++) {
               const m = out[i];

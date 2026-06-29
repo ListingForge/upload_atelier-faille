@@ -203,34 +203,23 @@ export function createPrintifyRouter(): Router {
     console.warn(`[Printify] waitForProductMockups timed out for ${productId}, continuing anyway.`);
   }
 
-  // Poll Printify until the Shopify-side product ID is available (Printify pushes it after publish).
+  // Single-check (no long-poll): returns 200 with the Shopify product id once Printify
+  // has pushed it, otherwise 202 "not yet". The frontend polls this with short intervals
+  // so we don't hold open long-lived HTTP connections that proxies (nginx/Cloudflare) kill.
   router.get("/products/:id/shopify-id", async (req, res) => {
     try {
       const id = req.params.id;
-      const maxWaitMs = 300_000; // Printify can take a few minutes to push, especially under load
-      const start = Date.now();
-      let interval = 2_000;
-      let pollCount = 0;
-      let lastSeen: any = null;
-      while (Date.now() - start < maxWaitMs) {
-        const product = await pf<any>(`/shops/${shopId()}/products/${id}.json`);
-        lastSeen = { external: product?.external, is_locked: product?.is_locked };
-        const ext = product?.external?.id;
-        const handle = product?.external?.handle;
-        if (ext) {
-          const numeric = String(ext);
-          const gid = numeric.startsWith("gid://") ? numeric : `gid://shopify/Product/${numeric}`;
-          return res.json({ shopifyProductId: gid, externalId: numeric, handle, waitedMs: Date.now() - start });
-        }
-        pollCount++;
-        await new Promise(r => setTimeout(r, interval));
-        interval = Math.min(interval + 500, 10_000);
+      const product = await pf<any>(`/shops/${shopId()}/products/${id}.json`);
+      const ext = product?.external?.id;
+      const handle = product?.external?.handle;
+      if (ext) {
+        const numeric = String(ext);
+        const gid = numeric.startsWith("gid://") ? numeric : `gid://shopify/Product/${numeric}`;
+        return res.json({ shopifyProductId: gid, externalId: numeric, handle });
       }
-      res.status(504).json({
-        error: "shopify product id not available yet",
-        waitedMs: Date.now() - start,
-        polls: pollCount,
-        lastSeen,
+      res.status(202).json({
+        pending: true,
+        is_locked: product?.is_locked ?? null,
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
