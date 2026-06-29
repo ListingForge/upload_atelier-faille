@@ -96,21 +96,24 @@ function buildRenderScript(layerName: string, format: "jpg" | "png"): string {
           }
           return null;
         }
-        var target = findLayer(mockupDoc.layers, "${layerName}");
-        if (!target) {
-          function findFirstSO(layers) {
-            for (var i = 0; i < layers.length; i++) {
-              var k = layers[i].kind;
-              if (k === 1 || k === 5 || (k && k.toString().indexOf("SmartObject") >= 0)) return layers[i];
-              if (layers[i].layers) {
-                var f = findFirstSO(layers[i].layers);
-                if (f) return f;
-              }
-            }
-            return null;
-          }
-          target = findFirstSO(mockupDoc.layers);
+        function isSO(layer) {
+          var k = layer && layer.kind;
+          return k === 1 || k === 5 || (k && k.toString().indexOf("SmartObject") >= 0);
         }
+        function findFirstSO(layers) {
+          for (var i = 0; i < layers.length; i++) {
+            if (isSO(layers[i])) return layers[i];
+            if (layers[i].layers) {
+              var f = findFirstSO(layers[i].layers);
+              if (f) return f;
+            }
+          }
+          return null;
+        }
+        // first try a smart-object layer with the given name; if that name only matches
+        // a group/pixel layer (common in some mockup packs), fall back to the first SO anywhere.
+        var named = findLayer(mockupDoc.layers, "${layerName}");
+        var target = (named && isSO(named)) ? named : findFirstSO(mockupDoc.layers);
 
         if (!target) {
           app.echoToOE("error: smart object layer not found (looking for '${layerName}')");
