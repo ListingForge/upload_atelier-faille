@@ -232,5 +232,83 @@ export function createShopifyRouter(): Router {
     }
   });
 
+  // Rename inch-based size option values (e.g. '12" x 18" (Vertical)') to cm
+  // (e.g. '30 × 45 cm (Hochformat)'). Idempotent: skips values that don't match.
+  router.post("/products/:id/relabel-sizes-cm", async (req, res) => {
+    try {
+      const productId = req.params.id;
+      const product = await gql<any>(
+        `query ProductOptions($id: ID!) {
+          product(id: $id) {
+            id
+            options {
+              id
+              name
+              optionValues { id name }
+            }
+          }
+        }`,
+        { id: productId }
+      );
+
+      const options = product?.product?.options || [];
+      const updated: Array<{ optionName: string; from: string; to: string }> = [];
+
+      for (const opt of options) {
+        const renames: Array<{ id: string; name: string }> = [];
+        for (const v of opt.optionValues || []) {
+          const cm = inchLabelToCm(v.name);
+          if (cm && cm !== v.name) {
+            renames.push({ id: v.id, name: cm });
+            updated.push({ optionName: opt.name, from: v.name, to: cm });
+          }
+        }
+        if (renames.length === 0) continue;
+
+        const upd = await gql<any>(
+          `mutation OptionRelabel($productId: ID!, $option: OptionUpdateInput!, $optionValuesToUpdate: [OptionValueUpdateInput!]) {
+            productOptionUpdate(
+              productId: $productId,
+              option: $option,
+              optionValuesToUpdate: $optionValuesToUpdate,
+              variantStrategy: LEAVE_AS_IS
+            ) {
+              userErrors { field message code }
+            }
+          }`,
+          {
+            productId,
+            option: { id: opt.id },
+            optionValuesToUpdate: renames,
+          }
+        );
+        const errs = upd?.productOptionUpdate?.userErrors;
+        if (errs?.length) return res.status(400).json({ error: errs, partial: updated });
+      }
+
+      res.json({ updated });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
+}
+
+// Maps Printify's inch labels to rounded-cm German labels.
+// e.g. '12" x 18" (Vertical)' → '30 × 45 cm (Hochformat)'
+//      '60" x 40" (Horizontal)' → '150 × 100 cm (Querformat)'
+// Returns null if the label doesn't match the expected pattern.
+function inchLabelToCm(label: string): string | null {
+  const m = /^\s*(\d+(?:\.\d+)?)"\s*x\s*(\d+(?:\.\d+)?)"\s*(?:\((Vertical|Horizontal)\))?\s*$/i.exec(label);
+  if (!m) return null;
+  const w = roundToFive(parseFloat(m[1]) * 2.54);
+  const h = roundToFive(parseFloat(m[2]) * 2.54);
+  const orient = m[3]?.toLowerCase();
+  const suffix = orient === "vertical" ? " (Hochformat)" : orient === "horizontal" ? " (Querformat)" : "";
+  return `${w} × ${h} cm${suffix}`;
+}
+
+function roundToFive(n: number): number {
+  return Math.round(n / 5) * 5;
 }

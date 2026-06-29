@@ -292,6 +292,24 @@ export default function UploadPage() {
               if (!imgR.ok) log(id, `Mockup ${i + 1} (${type}) Shopify-Upload fehlgeschlagen: ${await imgR.text()}`);
             }
             log(id, `${type}: Mockups in Shopify abgelegt`);
+
+            // Rename Printify's inch labels (e.g. '12" x 18" (Vertical)') to cm.
+            try {
+              const relR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/relabel-sizes-cm`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: "{}",
+              });
+              if (!relR.ok) {
+                log(id, `${type}: cm-Relabel fehlgeschlagen: ${await relR.text()}`);
+              } else {
+                const { updated } = await relR.json();
+                log(id, `${type}: ${updated?.length ?? 0} Varianten-Labels in cm umbenannt`);
+              }
+            } catch (e: any) {
+              log(id, `${type}: cm-Relabel Fehler: ${e.message}`);
+            }
           }
         } catch (e: any) {
           log(id, `${type}: Shopify-Mockup-Upload Fehler: ${e.message}`);
