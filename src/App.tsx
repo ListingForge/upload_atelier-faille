@@ -49,10 +49,12 @@ export default function App() {
       </aside>
 
       <main className="flex-1 min-w-0 p-6 md:p-10 overflow-y-auto">
-        {tab === "upload" && <UploadPage />}
-        {tab === "mockups" && <MockupListsPage />}
-        {tab === "editor" && <EditorPage />}
-        {tab === "settings" && <Placeholder title="Einstellungen" hint="API-Verbindungen, Preise, Defaults." />}
+        <div hidden={tab !== "upload"}><UploadPage /></div>
+        <div hidden={tab !== "mockups"}><MockupListsPage /></div>
+        <div hidden={tab !== "editor"}><EditorPage /></div>
+        <div hidden={tab !== "settings"}>
+          <Placeholder title="Einstellungen" hint="API-Verbindungen, Preise, Defaults." />
+        </div>
       </main>
     </div>
   );
