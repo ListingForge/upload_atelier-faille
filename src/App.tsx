@@ -2,7 +2,7 @@ import { useState, type ComponentType } from "react";
 import { Upload, LayoutGrid, Pencil, Settings, Flame } from "lucide-react";
 import MockupListsPage from "./components/MockupListsPage";
 import UploadPage from "./components/UploadPage";
-import EditorPage from "./components/EditorPage";
+import BulkEditorPage from "./components/BulkEditorPage";
 
 type Tab = "upload" | "mockups" | "editor" | "settings";
 
@@ -51,7 +51,7 @@ export default function App() {
       <main className="flex-1 min-w-0 p-6 md:p-10 overflow-y-auto">
         <div hidden={tab !== "upload"}><UploadPage /></div>
         <div hidden={tab !== "mockups"}><MockupListsPage /></div>
-        <div hidden={tab !== "editor"}><EditorPage /></div>
+        <div hidden={tab !== "editor"}><BulkEditorPage /></div>
         <div hidden={tab !== "settings"}>
           <Placeholder title="Einstellungen" hint="API-Verbindungen, Preise, Defaults." />
         </div>
