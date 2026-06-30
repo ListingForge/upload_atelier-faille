@@ -271,28 +271,31 @@ export default function UploadPage() {
         log(id, `${type}: an Shopify gepublisht (ohne Auto-Mockups)`);
 
         // 5) Hänge die generierten Mockups als Shopify-Produktbilder an.
-        // Mockups sind der gesamte Sinn des Programms — wenn das nicht klappt,
-        // ist das Produkt unbrauchbar und der Item wird als Fehler markiert.
-        log(id, `${type}: warte auf Printify→Shopify-Push (kann bis zu 15 min dauern)…`);
+        // Wir suchen das Produkt direkt in Shopify (Printifys external.id-Push
+        // ist unzuverlässig). Titel + Vendor sind eindeutig.
+        const shopifyTitle = `${productTitle} — ${type === "stretched" ? "Leinwand" : "Gerahmt"}`;
+        log(id, `${type}: warte bis Printify das Produkt in Shopify angelegt hat…`);
         let shopifyProductId: string | null = null;
         const pollStart = Date.now();
         const pollMax = 15 * 60 * 1000;
         while (Date.now() - pollStart < pollMax) {
-          const idR = await fetch(`/api/printify/products/${pr.id}/shopify-id`, { credentials: "include" });
-          if (idR.ok) {
-            const j = await idR.json();
+          const q = new URLSearchParams({ title: shopifyTitle, vendor: "Printify" });
+          const r = await fetch(`/api/sh/find-product?${q}`, { credentials: "include" });
+          if (r.ok) {
+            const j = await r.json();
             shopifyProductId = j.shopifyProductId;
             break;
           }
-          if (idR.status !== 202) {
-            const errText = await idR.text();
-            throw new Error(`${type}: Shopify-ID Polling-Fehler (${idR.status}): ${errText.slice(0, 200)}`);
+          if (r.status !== 404) {
+            const errText = await r.text();
+            throw new Error(`${type}: Shopify-Suche-Fehler (${r.status}): ${errText.slice(0, 200)}`);
           }
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise(res => setTimeout(res, 5000));
         }
         if (!shopifyProductId) {
-          throw new Error(`${type}: Printify hat das Produkt nach 15 min nicht zu Shopify gepusht — Mockups nicht angebracht`);
+          throw new Error(`${type}: Produkt nach 15 min nicht in Shopify gefunden — Mockups nicht angebracht`);
         }
+        log(id, `${type}: Produkt gefunden in Shopify (${shopifyProductId})`);
         log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
         let mockupsUploaded = 0;
         for (let i = 0; i < out.length; i++) {

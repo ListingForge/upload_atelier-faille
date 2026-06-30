@@ -69,6 +69,33 @@ const PRODUCTS_LIST_QUERY = `
 export function createShopifyRouter(): Router {
   const router = express.Router();
 
+  // Find a product by exact title + vendor (used as fallback when Printify's
+  // external.id push lags behind). Returns the most recently created match.
+  router.get("/find-product", async (req, res) => {
+    try {
+      const title = String(req.query.title || "");
+      const vendor = String(req.query.vendor || "");
+      if (!title) return res.status(400).json({ error: "title required" });
+      // Shopify product search: title is fuzzy; we filter exact match in JS.
+      const q = vendor ? `title:'${title}' vendor:'${vendor}'` : `title:'${title}'`;
+      const data = await gql<any>(
+        `query FindProduct($q: String!) {
+          products(first: 10, query: $q, sortKey: CREATED_AT, reverse: true) {
+            edges { node { id title vendor createdAt } }
+          }
+        }`,
+        { q }
+      );
+      const match = (data?.products?.edges || [])
+        .map((e: any) => e.node)
+        .find((n: any) => n.title === title && (!vendor || n.vendor === vendor));
+      if (!match) return res.status(404).json({ error: "not found" });
+      res.json({ shopifyProductId: match.id, title: match.title, vendor: match.vendor, createdAt: match.createdAt });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   router.get("/products", async (req, res) => {
     try {
       const cursor = (req.query.cursor as string) || null;
