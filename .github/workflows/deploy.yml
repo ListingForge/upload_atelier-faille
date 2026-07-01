@@ -31,4 +31,4 @@ jobs:
             npm ci
             npm run build
             sudo -n systemctl restart atelier-faille-upload
-            sudo -n systemctl is-active --quiet atelier-faille-upload
+            test "$(sudo -n systemctl is-active atelier-faille-upload)" = "active"
