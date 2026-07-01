@@ -70,6 +70,26 @@ async function downscaleImage(file: Blob, maxEdge: number, mime = "image/jpeg", 
   }
 }
 
+// Wie viele Items/Aufgaben gleichzeitig laufen dürfen.
+// Photopea selbst serialisiert intern über den Singleton-Iframe — mehr Items
+// bringen aber trotzdem viel, weil Printify-Uploads, Shopify-Polling und
+// Bild-Uploads parallel zum Rendern anderer Items ablaufen können.
+const ITEM_CONCURRENCY = 4;
+const VARIANT_CONCURRENCY = 2; // stretched + framed pro Item — parallel
+const MOCKUP_UPLOAD_CONCURRENCY = 6; // Shopify-Bild-Uploads pro Variante
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const runners = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      await worker(items[i], i);
+    }
+  });
+  await Promise.all(runners);
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -236,10 +256,9 @@ export default function UploadPage() {
       if (gemini?.title) productTitle = gemini.title;
       if (gemini?.description) productDescription = `<p>${gemini.description}</p>`;
 
-      // 3) Create stretched + framed products
+      // 3) stretched + framed parallel erzeugen, publishen, Mockups anhängen
       updateItem(id, { stage: "creating" });
-      const productIds: string[] = [];
-      for (const type of ["stretched", "framed"] as const) {
+      const runVariant = async (type: "stretched" | "framed"): Promise<string> => {
         log(id, `Erstelle ${type} Produkt…`);
         const prR = await fetch("/api/printify/products", {
           method: "POST",
@@ -256,10 +275,8 @@ export default function UploadPage() {
         });
         if (!prR.ok) throw new Error(`Printify create (${type}): ${await prR.text()}`);
         const pr: any = await prR.json();
-        productIds.push(pr.id);
         log(id, `Printify product ${pr.id} (${type}) erstellt`);
 
-        // 4) Publish to Shopify (without auto-mockups)
         updateItem(id, { stage: "publishing" });
         const pubR = await fetch(`/api/printify/products/${pr.id}/publish`, {
           method: "POST",
@@ -270,9 +287,6 @@ export default function UploadPage() {
         if (!pubR.ok) throw new Error(`Printify publish (${type}): ${await pubR.text()}`);
         log(id, `${type}: an Shopify gepublisht (ohne Auto-Mockups)`);
 
-        // 5) Hänge die generierten Mockups als Shopify-Produktbilder an.
-        // Wir suchen das Produkt direkt in Shopify (Printifys external.id-Push
-        // ist unzuverlässig). Titel + Vendor sind eindeutig.
         const shopifyTitle = `${productTitle} — ${type === "stretched" ? "Leinwand" : "Gerahmt"}`;
         log(id, `${type}: warte bis Printify das Produkt in Shopify angelegt hat…`);
         let shopifyProductId: string | null = null;
@@ -297,9 +311,9 @@ export default function UploadPage() {
         }
         log(id, `${type}: Produkt gefunden in Shopify (${shopifyProductId})`);
         log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
+
         let mockupsUploaded = 0;
-        for (let i = 0; i < out.length; i++) {
-          const m = out[i];
+        await runWithConcurrency(out, MOCKUP_UPLOAD_CONCURRENCY, async (m, i) => {
           let dataUrl = m.src;
           if (!dataUrl.startsWith("data:")) {
             const blob = await fetchBlob(dataUrl);
@@ -310,7 +324,7 @@ export default function UploadPage() {
               r.readAsDataURL(blob);
             });
           }
-          const imgR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/images`, {
+          const imgR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId!)}/images`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
@@ -321,13 +335,12 @@ export default function UploadPage() {
           } else {
             mockupsUploaded++;
           }
-        }
+        });
         if (mockupsUploaded === 0 && out.length > 0) {
           throw new Error(`${type}: keiner der ${out.length} Mockups konnte zu Shopify hochgeladen werden`);
         }
         log(id, `${type}: ${mockupsUploaded}/${out.length} Mockups in Shopify abgelegt`);
 
-        // Rename Printify's inch labels (e.g. '12" x 18" (Vertical)') to cm.
         try {
           const relR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/relabel-sizes-cm`, {
             method: "POST",
@@ -344,7 +357,18 @@ export default function UploadPage() {
         } catch (e: any) {
           log(id, `${type}: cm-Relabel Fehler: ${e.message}`);
         }
+        return pr.id as string;
+      };
+
+      const variantResults = await Promise.allSettled([runVariant("stretched"), runVariant("framed")]);
+      const productIds: string[] = [];
+      const variantErrors: string[] = [];
+      for (const r of variantResults) {
+        if (r.status === "fulfilled") productIds.push(r.value);
+        else variantErrors.push(r.reason?.message ?? String(r.reason));
       }
+      if (productIds.length === 0) throw new Error(variantErrors.join(" | "));
+      if (variantErrors.length > 0) log(id, `Teilweiser Fehler: ${variantErrors.join(" | ")}`);
       updateItem(id, { stage: "done", shopifyProductIds: productIds });
     } catch (e: any) {
       updateItem(id, { stage: "failed", error: e.message });
@@ -354,13 +378,10 @@ export default function UploadPage() {
 
   const runAll = async () => {
     setBusy(true);
-    for (const it of items) {
-      if (it.stage === "pending" || it.stage === "failed") {
-        // re-fetch the live item to include updates
-        const live = items.find(x => x.id === it.id);
-        if (live) await runOne(live);
-      }
-    }
+    const todo = items.filter(it => it.stage === "pending" || it.stage === "failed");
+    await runWithConcurrency(todo, ITEM_CONCURRENCY, async it => {
+      await runOne(it);
+    });
     setBusy(false);
   };
 
