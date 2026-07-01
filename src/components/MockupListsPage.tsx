@@ -241,7 +241,11 @@ function Tile({ item, orientation, position, onDelete }: TileProps) {
   };
 
   const isImage = item.kind === "image";
-  const src = `/api/mockups/${orientation}/${item.id}/file`;
+  const [psdThumbFailed, setPsdThumbFailed] = useState(false);
+  const src = isImage
+    ? `/api/mockups/${orientation}/${item.id}/file`
+    : `/api/mockups/${orientation}/${item.id}/thumb`;
+  const showPreview = isImage || !psdThumbFailed;
 
   return (
     <div
@@ -250,8 +254,14 @@ function Tile({ item, orientation, position, onDelete }: TileProps) {
       className="group relative bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm"
     >
       <div className="aspect-square bg-slate-100 grid place-items-center relative overflow-hidden">
-        {isImage ? (
-          <img src={src} alt={item.originalName} className="w-full h-full object-cover" loading="lazy" />
+        {showPreview ? (
+          <img
+            src={src}
+            alt={item.originalName}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={() => { if (!isImage) setPsdThumbFailed(true); }}
+          />
         ) : (
           <div className="text-center text-slate-500">
             <Layers className="w-10 h-10 mx-auto mb-1" />
