@@ -23,10 +23,12 @@ jobs:
           script_stop: true
           script: |
             set -e
-            cd /var/www/atelier-faille-upload
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            cd /home/ben/upload-atelier-faille
             git fetch --all
             git reset --hard origin/main
             npm ci
             npm run build
-            sudo systemctl restart atelier-faille-upload
-            sudo systemctl is-active --quiet atelier-faille-upload
+            sudo -n systemctl restart atelier-faille-upload
+            sudo -n systemctl is-active --quiet atelier-faille-upload
