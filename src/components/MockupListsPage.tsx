@@ -23,6 +23,7 @@ export default function MockupListsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,8 +65,15 @@ export default function MockupListsPage() {
     }
   };
 
-  const onDelete = async (id: string) => {
-    if (!confirm("Wirklich löschen?")) return;
+  const requestDelete = (id: string) => {
+    const item = current.find(i => i.id === id);
+    setConfirmDelete({ id, name: item?.originalName ?? id });
+  };
+
+  const doDelete = async () => {
+    if (!confirmDelete) return;
+    const id = confirmDelete.id;
+    setConfirmDelete(null);
     setBusy(true);
     try {
       const r = await fetch(`/api/mockups/${orientation}/${id}`, {
@@ -162,13 +170,79 @@ export default function MockupListsPage() {
                   item={item}
                   orientation={orientation}
                   position={idx + 1}
-                  onDelete={() => onDelete(item.id)}
+                  onDelete={() => requestDelete(item.id)}
                 />
               ))}
             </div>
           </SortableContext>
         </DndContext>
       )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Mockup löschen?"
+          body={<>
+            <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{confirmDelete.name}</span>
+            {" wird dauerhaft entfernt. Diese Aktion kann nicht rückgängig gemacht werden."}
+          </>}
+          confirmLabel="Löschen"
+          onConfirm={doDelete}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  body: React.ReactNode;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+      if (e.key === "Enter") onConfirm();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel, onConfirm]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-xl shadow-xl w-full max-w-md p-5"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold text-slate-900 mb-2">{title}</h3>
+        <div className="text-sm text-slate-600 mb-5">{body}</div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer"
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={onConfirm}
+            autoFocus
+            className="px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
