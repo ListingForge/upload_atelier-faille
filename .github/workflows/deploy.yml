@@ -26,8 +26,13 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             cd /home/ben/upload-atelier-faille
+            # Preserve runtime state (mockup ordering + uploads registry) across
+            # the git reset so live edits survive deploys.
+            mkdir -p /tmp/atelier-faille-state
+            [ -f data/mockup-lists.json ] && cp data/mockup-lists.json /tmp/atelier-faille-state/mockup-lists.json || true
             git fetch --all
             git reset --hard origin/main
+            [ -f /tmp/atelier-faille-state/mockup-lists.json ] && mv /tmp/atelier-faille-state/mockup-lists.json data/mockup-lists.json || true
             npm ci
             npm run build
             sudo -n systemctl restart atelier-faille-upload
