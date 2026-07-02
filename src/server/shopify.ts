@@ -260,60 +260,88 @@ export function createShopifyRouter(): Router {
   });
 
   // Rename inch-based size option values (e.g. '12" x 18" (Vertical)') to cm
-  // (e.g. '30 × 45 cm (Hochformat)'). Idempotent: skips values that don't match.
+  // (e.g. '30 × 45 cm (Hochformat)'). Idempotent. Printify's Shopify push adds
+  // variants in async batches after publish, so we retry until no inch labels
+  // remain (or a max wait elapses) to catch late-arriving values.
   router.post("/products/:id/relabel-sizes-cm", async (req, res) => {
     try {
       const productId = req.params.id;
-      const product = await gql<any>(
-        `query ProductOptions($id: ID!) {
-          product(id: $id) {
-            id
-            options {
-              id
-              name
-              optionValues { id name }
-            }
-          }
-        }`,
-        { id: productId }
-      );
-
-      const options = product?.product?.options || [];
+      const maxAttempts = 20;
+      const delayMs = 3000;
       const updated: Array<{ optionName: string; from: string; to: string }> = [];
+      let remainingInch = 0;
 
-      for (const opt of options) {
-        const renames: Array<{ id: string; name: string }> = [];
-        for (const v of opt.optionValues || []) {
-          const cm = inchLabelToCm(v.name);
-          if (cm && cm !== v.name) {
-            renames.push({ id: v.id, name: cm });
-            updated.push({ optionName: opt.name, from: v.name, to: cm });
-          }
-        }
-        if (renames.length === 0) continue;
-
-        const upd = await gql<any>(
-          `mutation OptionRelabel($productId: ID!, $option: OptionUpdateInput!, $optionValuesToUpdate: [OptionValueUpdateInput!]) {
-            productOptionUpdate(
-              productId: $productId,
-              option: $option,
-              optionValuesToUpdate: $optionValuesToUpdate,
-              variantStrategy: LEAVE_AS_IS
-            ) {
-              userErrors { field message code }
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const product = await gql<any>(
+          `query ProductOptions($id: ID!) {
+            product(id: $id) {
+              id
+              options {
+                id
+                name
+                optionValues { id name }
+              }
             }
           }`,
-          {
-            productId,
-            option: { id: opt.id },
-            optionValuesToUpdate: renames,
-          }
+          { id: productId }
         );
-        const errs = upd?.productOptionUpdate?.userErrors;
-        if (errs?.length) return res.status(400).json({ error: errs, partial: updated });
+
+        const options = product?.product?.options || [];
+        let didWork = false;
+        remainingInch = 0;
+
+        for (const opt of options) {
+          const renames: Array<{ id: string; name: string }> = [];
+          for (const v of opt.optionValues || []) {
+            const cm = inchLabelToCm(v.name);
+            if (cm && cm !== v.name) {
+              renames.push({ id: v.id, name: cm });
+              updated.push({ optionName: opt.name, from: v.name, to: cm });
+            }
+          }
+          if (renames.length === 0) continue;
+          didWork = true;
+
+          const upd = await gql<any>(
+            `mutation OptionRelabel($productId: ID!, $option: OptionUpdateInput!, $optionValuesToUpdate: [OptionValueUpdateInput!]) {
+              productOptionUpdate(
+                productId: $productId,
+                option: $option,
+                optionValuesToUpdate: $optionValuesToUpdate,
+                variantStrategy: LEAVE_AS_IS
+              ) {
+                userErrors { field message code }
+              }
+            }`,
+            {
+              productId,
+              option: { id: opt.id },
+              optionValuesToUpdate: renames,
+            }
+          );
+          const errs = upd?.productOptionUpdate?.userErrors;
+          if (errs?.length) return res.status(400).json({ error: errs, partial: updated });
+        }
+
+        // Re-query to see if new inch-labelled variants appeared meanwhile.
+        const check = await gql<any>(
+          `query CheckOptions($id: ID!) {
+            product(id: $id) { options { optionValues { name } } }
+          }`,
+          { id: productId }
+        );
+        remainingInch = 0;
+        for (const opt of check?.product?.options || []) {
+          for (const v of opt.optionValues || []) {
+            if (inchLabelToCm(v.name)) remainingInch++;
+          }
+        }
+        if (remainingInch === 0) break;
+        if (attempt < maxAttempts) await new Promise(r => setTimeout(r, delayMs));
+        else if (!didWork) break; // nothing changed this round and still remaining — give up
       }
 
-      res.json({ updated });
+      res.json({ updated, remainingInch });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

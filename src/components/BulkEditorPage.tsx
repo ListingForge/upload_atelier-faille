@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2, RefreshCw, Search, X, Check, AlertCircle, Pencil, Image as ImageIcon,
-  Type, FileText, Tag, DollarSign, Power, Trash2, Plus, Upload, ArrowLeft,
+  Type, FileText, Tag, DollarSign, Power, Trash2, Plus, Upload, ArrowLeft, Ruler,
 } from "lucide-react";
 
 interface Variant {
@@ -46,7 +46,7 @@ interface PendingEdit {
   imageChanges?: ImageChange[];
 }
 
-type Section = "title" | "description" | "tags" | "price" | "status" | "images";
+type Section = "title" | "description" | "tags" | "price" | "status" | "images" | "sizes";
 
 const SECTION_META: Record<Section, { label: string; icon: any }> = {
   title:       { label: "Titel",        icon: Type },
@@ -55,6 +55,7 @@ const SECTION_META: Record<Section, { label: string; icon: any }> = {
   price:       { label: "Preis",        icon: DollarSign },
   status:      { label: "Status",       icon: Power },
   images:      { label: "Bilder",       icon: ImageIcon },
+  sizes:       { label: "Größen (cm)",  icon: Ruler },
 };
 
 const MAX_IMAGE_EDGE = 2000;
@@ -507,7 +508,7 @@ function BulkEditModal(p: ModalProps) {
 
   const sectionDirtyCounts = useMemo(() => {
     const counts: Record<Section, number> = {
-      title: 0, description: 0, tags: 0, price: 0, status: 0, images: 0,
+      title: 0, description: 0, tags: 0, price: 0, status: 0, images: 0, sizes: 0,
     };
     for (const prod of p.selectedProducts) {
       const e = p.pending[prod.id];
@@ -581,6 +582,7 @@ function BulkEditModal(p: ModalProps) {
             {p.section === "price" && <PriceSection {...p} />}
             {p.section === "status" && <StatusSection {...p} />}
             {p.section === "images" && <ImagesSection {...p} />}
+            {p.section === "sizes" && <SizesSection {...p} />}
           </div>
         </main>
       </div>
@@ -1086,4 +1088,96 @@ function fileToDataUrl(file: File | Blob): Promise<string> {
     r.onerror = reject;
     r.readAsDataURL(file);
   });
+}
+
+// Retroactively relabel inch-based size options to cm for products where Printify
+// added variants after the upload flow's one-shot relabel. The endpoint retries
+// internally, so one click is enough per product.
+function SizesSection({ selectedProducts }: ModalProps) {
+  type RowState = "idle" | "running" | "done" | "error";
+  const [state, setState] = useState<Record<string, RowState>>({});
+  const [result, setResult] = useState<Record<string, { renamed: number; remaining: number; error?: string }>>({});
+  const [running, setRunning] = useState(false);
+
+  const runOne = async (id: string) => {
+    setState(s => ({ ...s, [id]: "running" }));
+    try {
+      const r = await fetch(`/api/sh/products/${encodeURIComponent(id)}/relabel-sizes-cm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: "{}",
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setResult(rr => ({ ...rr, [id]: { renamed: 0, remaining: 0, error: JSON.stringify(j.error ?? j).slice(0, 200) } }));
+        setState(s => ({ ...s, [id]: "error" }));
+        return;
+      }
+      setResult(rr => ({ ...rr, [id]: { renamed: j.updated?.length ?? 0, remaining: j.remainingInch ?? 0 } }));
+      setState(s => ({ ...s, [id]: "done" }));
+    } catch (e: any) {
+      setResult(rr => ({ ...rr, [id]: { renamed: 0, remaining: 0, error: e.message } }));
+      setState(s => ({ ...s, [id]: "error" }));
+    }
+  };
+
+  const runAll = async () => {
+    setRunning(true);
+    for (const prod of selectedProducts) {
+      await runOne(prod.id);
+    }
+    setRunning(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader title="Größen (cm)" />
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <p className="text-sm text-slate-600 mb-3">
+          Benennt Zoll-Varianten (z.B. <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">18" x 12" (Horizontal)</code>) in cm um
+          (z.B. <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">45 × 30 cm (Querformat)</code>). Server retryt intern,
+          bis Printify alle Varianten nachgereicht hat.
+        </p>
+        <button
+          onClick={runAll}
+          disabled={running}
+          className="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+        >
+          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ruler className="w-4 h-4" />}
+          {running ? "Läuft…" : `Alle ${selectedProducts.length} umbenennen`}
+        </button>
+      </div>
+      <div className="space-y-2">
+        {selectedProducts.map(prod => {
+          const st = state[prod.id] ?? "idle";
+          const rs = result[prod.id];
+          return (
+            <PerProductRow key={prod.id}>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-slate-700 truncate">{prod.title}</div>
+                {rs && !rs.error && (
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    {rs.renamed} umbenannt{rs.remaining > 0 ? ` · ${rs.remaining} Zoll-Werte übrig` : ""}
+                  </div>
+                )}
+                {rs?.error && <div className="text-[11px] text-rose-600 mt-0.5 truncate">{rs.error}</div>}
+              </div>
+              <button
+                onClick={() => runOne(prod.id)}
+                disabled={st === "running" || running}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50 cursor-pointer flex items-center gap-1.5 min-w-[110px] justify-center"
+              >
+                {st === "running" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {st === "done" && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                {st === "error" && <AlertCircle className="w-3.5 h-3.5 text-rose-600" />}
+                {st === "idle" && <Ruler className="w-3.5 h-3.5" />}
+                {st === "running" ? "Läuft…" : st === "done" ? "Fertig" : st === "error" ? "Fehler" : "Umbenennen"}
+              </button>
+            </PerProductRow>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
