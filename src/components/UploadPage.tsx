@@ -299,26 +299,42 @@ export default function UploadPage() {
         log(id, `${type}: an Shopify gepublisht (ohne Auto-Mockups)`);
 
         log(id, `${type}: warte bis Printify das Produkt in Shopify angelegt hat…`);
+        // Zwei Poll-Wege parallel:
+        //  A) /api/printify/products/:printifyId/shopify-id  — deterministisch via external.id,
+        //     funktioniert aber nur wenn Printify's publishing_succeeded-Webhook zurückkommt
+        //     (in unserem Setup nicht immer der Fall → kann leer bleiben).
+        //  B) /api/sh/find-product?title=…&vendor=Printify — Titel-Fuzzy-Match in Shopify,
+        //     funktioniert sobald Printify das Produkt gepusht hat (Sekunden).
+        // Wer zuerst antwortet, gewinnt. Bei sequentiellen Uploads (aktueller User-Flow)
+        // ist Titel-Kollision extrem unwahrscheinlich.
+        const shopifyTitle = `${productTitle} — ${type === "stretched" ? "Leinwand" : "Gerahmt"}`;
         let shopifyProductId: string | null = null;
         const pollStart = Date.now();
-        const pollMax = 15 * 60 * 1000;
+        const pollMax = 5 * 60 * 1000;
         while (Date.now() - pollStart < pollMax) {
-          // Deterministisch: Printify liefert die Shopify-Produkt-ID direkt via external.id,
-          // sobald der Push durch ist. Kein Titel-Match, keine Race zwischen parallelen Items.
-          const r = await fetch(`/api/printify/products/${encodeURIComponent(pr.id)}/shopify-id`, { credentials: "include" });
-          if (r.ok) {
-            const j = await r.json();
+          const [pfRes, shRes] = await Promise.all([
+            fetch(`/api/printify/products/${encodeURIComponent(pr.id)}/shopify-id`, { credentials: "include" }).catch(() => null),
+            fetch(`/api/sh/find-product?${new URLSearchParams({ title: shopifyTitle, vendor: "Printify" })}`, { credentials: "include" }).catch(() => null),
+          ]);
+          if (pfRes?.ok) {
+            const j = await pfRes.json();
             shopifyProductId = j.shopifyProductId;
             break;
           }
-          if (r.status !== 202) {
-            const errText = await r.text();
-            throw new Error(`${type}: Printify-Shopify-ID-Fehler (${r.status}): ${errText.slice(0, 200)}`);
+          if (shRes?.ok) {
+            const j = await shRes.json();
+            shopifyProductId = j.shopifyProductId;
+            break;
+          }
+          // 5xx auf shopify-search ist hart-fatal (nicht bloss "noch nicht da")
+          if (shRes && shRes.status >= 500) {
+            const errText = await shRes.text();
+            throw new Error(`${type}: Shopify-Suche-Fehler (${shRes.status}): ${errText.slice(0, 200)}`);
           }
           await new Promise(res => setTimeout(res, 5000));
         }
         if (!shopifyProductId) {
-          throw new Error(`${type}: Produkt nach 15 min nicht in Shopify gefunden — Mockups nicht angebracht`);
+          throw new Error(`${type}: Produkt nach 5 min nicht in Shopify gefunden — Mockups nicht angebracht`);
         }
         log(id, `${type}: Produkt gefunden in Shopify (${shopifyProductId})`);
         log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
