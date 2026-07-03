@@ -69,18 +69,23 @@ const PRODUCTS_LIST_QUERY = `
 export function createShopifyRouter(): Router {
   const router = express.Router();
 
-  // Find a product by exact title + vendor (used as fallback when Printify's
-  // external.id push lags behind). Returns the most recently created match.
+  // Find a product by exact title + vendor. Used als Fallback wenn Printify's
+  // external.id-Push nachhinkt (Printify setzt external.id nur nach einem
+  // publishing_succeeded-Webhook, den wir in diesem Setup nicht empfangen).
+  //
+  // WICHTIG: `title:'X'` in Shopifys `products(query:)` geht über den Volltext-
+  // Search-Index, der bei brandneuen Produkten 5–15 min propagiert. `vendor:X`
+  // ist dagegen ein Direkt-Filter und trifft sofort. Deshalb: nur nach Vendor
+  // filtern + Titel-Match clientseitig in den letzten 50 Kreationen.
   router.get("/find-product", async (req, res) => {
     try {
       const title = String(req.query.title || "");
       const vendor = String(req.query.vendor || "");
       if (!title) return res.status(400).json({ error: "title required" });
-      // Shopify product search: title is fuzzy; we filter exact match in JS.
-      const q = vendor ? `title:'${title}' vendor:'${vendor}'` : `title:'${title}'`;
+      const q = vendor ? `vendor:'${vendor}'` : "";
       const data = await gql<any>(
         `query FindProduct($q: String!) {
-          products(first: 10, query: $q, sortKey: CREATED_AT, reverse: true) {
+          products(first: 50, query: $q, sortKey: CREATED_AT, reverse: true) {
             edges { node { id title vendor createdAt } }
           }
         }`,
