@@ -75,8 +75,6 @@ async function downscaleImage(file: Blob, maxEdge: number, mime = "image/jpeg", 
 // bringen aber trotzdem viel, weil Printify-Uploads, Shopify-Polling und
 // Bild-Uploads parallel zum Rendern anderer Items ablaufen können.
 const ITEM_CONCURRENCY = 4;
-const VARIANT_CONCURRENCY = 2; // stretched + framed pro Item — parallel
-const MOCKUP_UPLOAD_CONCURRENCY = 6; // Shopify-Bild-Uploads pro Variante
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
   let cursor = 0;
@@ -193,7 +191,20 @@ export default function UploadPage() {
       const out: { src: string; itemId: string }[] = [];
       for (const m of list) {
         if (m.kind === "image") {
-          out.push({ src: `/api/mockups/${orientation}/${m.id}/file`, itemId: m.id });
+          // Statisches Bild sofort zu dataURL — sonst passiert der Netz-Fetch
+          // erst in der Upload-Phase und kann dort still fehlschlagen.
+          try {
+            const blob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const r = new FileReader();
+              r.onload = () => resolve(String(r.result));
+              r.onerror = reject;
+              r.readAsDataURL(blob);
+            });
+            out.push({ src: dataUrl, itemId: m.id });
+          } catch (e: any) {
+            log(id, `Statisches Mockup ${m.originalName} konnte nicht geladen werden: ${e.message}`);
+          }
           continue;
         }
         let psdBlob: Blob;
@@ -287,22 +298,22 @@ export default function UploadPage() {
         if (!pubR.ok) throw new Error(`Printify publish (${type}): ${await pubR.text()}`);
         log(id, `${type}: an Shopify gepublisht (ohne Auto-Mockups)`);
 
-        const shopifyTitle = `${productTitle} — ${type === "stretched" ? "Leinwand" : "Gerahmt"}`;
         log(id, `${type}: warte bis Printify das Produkt in Shopify angelegt hat…`);
         let shopifyProductId: string | null = null;
         const pollStart = Date.now();
         const pollMax = 15 * 60 * 1000;
         while (Date.now() - pollStart < pollMax) {
-          const q = new URLSearchParams({ title: shopifyTitle, vendor: "Printify" });
-          const r = await fetch(`/api/sh/find-product?${q}`, { credentials: "include" });
+          // Deterministisch: Printify liefert die Shopify-Produkt-ID direkt via external.id,
+          // sobald der Push durch ist. Kein Titel-Match, keine Race zwischen parallelen Items.
+          const r = await fetch(`/api/printify/products/${encodeURIComponent(pr.id)}/shopify-id`, { credentials: "include" });
           if (r.ok) {
             const j = await r.json();
             shopifyProductId = j.shopifyProductId;
             break;
           }
-          if (r.status !== 404) {
+          if (r.status !== 202) {
             const errText = await r.text();
-            throw new Error(`${type}: Shopify-Suche-Fehler (${r.status}): ${errText.slice(0, 200)}`);
+            throw new Error(`${type}: Printify-Shopify-ID-Fehler (${r.status}): ${errText.slice(0, 200)}`);
           }
           await new Promise(res => setTimeout(res, 5000));
         }
@@ -312,33 +323,23 @@ export default function UploadPage() {
         log(id, `${type}: Produkt gefunden in Shopify (${shopifyProductId})`);
         log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);
 
-        let mockupsUploaded = 0;
-        await runWithConcurrency(out, MOCKUP_UPLOAD_CONCURRENCY, async (m, i) => {
-          let dataUrl = m.src;
-          if (!dataUrl.startsWith("data:")) {
-            const blob = await fetchBlob(dataUrl);
-            dataUrl = await new Promise<string>((resolve, reject) => {
-              const r = new FileReader();
-              r.onload = () => resolve(String(r.result));
-              r.onerror = reject;
-              r.readAsDataURL(blob);
-            });
-          }
-          const imgR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId!)}/images`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ dataUrl, filename: `${productTitle}-${type}-${i + 1}.png` }),
-          });
-          if (!imgR.ok) {
-            log(id, `Mockup ${i + 1} (${type}) Shopify-Upload fehlgeschlagen: ${await imgR.text()}`);
-          } else {
-            mockupsUploaded++;
-          }
+        // Alle Mockups in einer productCreateMedia-Mutation → Reihenfolge im
+        // Array = Position im Shopify-Produkt. Staged uploads laufen serverseitig parallel.
+        const batchImages = out.map((m, i) => ({
+          dataUrl: m.src,
+          filename: `${productTitle}-${type}-${i + 1}.png`,
+        }));
+        const batchR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/images/batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ images: batchImages }),
         });
-        if (mockupsUploaded === 0 && out.length > 0) {
-          throw new Error(`${type}: keiner der ${out.length} Mockups konnte zu Shopify hochgeladen werden`);
+        if (!batchR.ok) {
+          throw new Error(`${type}: Shopify-Batch-Upload fehlgeschlagen: ${await batchR.text()}`);
         }
+        const batchJson = await batchR.json();
+        const mockupsUploaded = batchJson?.count ?? out.length;
         log(id, `${type}: ${mockupsUploaded}/${out.length} Mockups in Shopify abgelegt`);
 
         try {

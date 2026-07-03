@@ -241,6 +241,82 @@ export function createShopifyRouter(): Router {
     }
   });
 
+  // Batch-add mehrere Bilder in EINER productCreateMedia-Mutation.
+  // Reihenfolge im Array = Position im Shopify-Produkt. Alle staged uploads
+  // laufen parallel, aber die finale Media-Zuordnung ist atomar und geordnet.
+  // Body: { images: [{ dataUrl, filename }, ...] } oder { images: [{ src }, ...] }
+  router.post("/products/:id/images/batch", async (req, res) => {
+    try {
+      const id = req.params.id;
+      const images = Array.isArray(req.body?.images) ? req.body.images : null;
+      if (!images || images.length === 0) return res.status(400).json({ error: "images[] required" });
+
+      const sources = await Promise.all(
+        images.map(async (img: any, idx: number) => {
+          if (img?.src) return String(img.src);
+          const dataUrl = img?.dataUrl;
+          if (!dataUrl) throw new Error(`images[${idx}]: src or dataUrl required`);
+          const m = /^data:(.+?);base64,(.+)$/.exec(String(dataUrl));
+          if (!m) throw new Error(`images[${idx}]: invalid dataUrl`);
+          const mimeType = m[1];
+          const buf = Buffer.from(m[2], "base64");
+          const name = String(img.filename || `mockup-${Date.now()}-${idx}.${(mimeType.split("/")[1] || "png").split(";")[0]}`);
+
+          const staged = await gql<any>(
+            `mutation StagedUploadsCreate($input: [StagedUploadInput!]!) {
+              stagedUploadsCreate(input: $input) {
+                stagedTargets { url resourceUrl parameters { name value } }
+                userErrors { field message }
+              }
+            }`,
+            {
+              input: [
+                {
+                  resource: "IMAGE",
+                  filename: name,
+                  mimeType,
+                  httpMethod: "POST",
+                  fileSize: String(buf.length),
+                },
+              ],
+            }
+          );
+          const stagedErrors = staged?.stagedUploadsCreate?.userErrors;
+          if (stagedErrors?.length) throw new Error(`images[${idx}]: staged ${JSON.stringify(stagedErrors)}`);
+          const target = staged?.stagedUploadsCreate?.stagedTargets?.[0];
+          if (!target) throw new Error(`images[${idx}]: no staged target`);
+
+          const fd = new FormData();
+          for (const p of target.parameters as Array<{ name: string; value: string }>) {
+            fd.append(p.name, p.value);
+          }
+          fd.append("file", new Blob([buf], { type: mimeType }), name);
+          const upR = await fetch(target.url, { method: "POST", body: fd as any });
+          if (!upR.ok) throw new Error(`images[${idx}]: staged upload ${upR.status}: ${await upR.text()}`);
+          return String(target.resourceUrl);
+        })
+      );
+
+      const data = await gql<any>(
+        `mutation ProductCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+          productCreateMedia(productId: $productId, media: $media) {
+            media { ... on MediaImage { id image { url } } }
+            mediaUserErrors { field message }
+          }
+        }`,
+        {
+          productId: id,
+          media: sources.map(originalSource => ({ originalSource, mediaContentType: "IMAGE" })),
+        }
+      );
+      const userErrors = data?.productCreateMedia?.mediaUserErrors;
+      if (userErrors?.length) return res.status(400).json({ error: userErrors });
+      res.json({ media: data.productCreateMedia.media, count: sources.length });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Delete a product image
   router.delete("/products/:id/images/:imageId", async (req, res) => {
     try {
