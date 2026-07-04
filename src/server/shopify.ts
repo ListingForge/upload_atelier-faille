@@ -13,6 +13,9 @@ function activeShop(): { shop: string; token: string } {
   throw new Error("No Shopify access token. Install the app first.");
 }
 
+export async function shopifyGql<T = any>(query: string, variables?: any): Promise<T> {
+  return gql(query, variables);
+}
 async function gql<T = any>(query: string, variables?: any): Promise<T> {
   const { shop, token } = activeShop();
   const r = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {

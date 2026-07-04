@@ -1,6 +1,7 @@
 import express, { type Router } from "express";
 import fs from "fs";
 import path from "path";
+import { shopifyGql } from "./shopify";
 
 const API_BASE = "https://api.printify.com/v1";
 
@@ -365,6 +366,78 @@ export function createPrintifyRouter(): Router {
       );
 
       res.json({ matched: targets.length, republished: republished.length, failed: failed.length, failedDetails: failed.slice(0, 20) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Admin: löscht Printify-Produkte deren external.id auf ein nicht mehr
+  // existierendes Shopify-Produkt zeigt (stale link nach vorherigem Shopify-Cleanup).
+  router.post("/admin/delete-stale-shopify-links", async (req, res) => {
+    try {
+      const dryRun = String(req.query.dry_run || "") === "1";
+      const products = await fetchAllProducts();
+
+      // Alle mit external.id
+      const linked = products.filter(p => p?.external?.id);
+      const gids = linked.map(p => {
+        const raw = String(p.external.id);
+        return raw.startsWith("gid://") ? raw : `gid://shopify/Product/${raw}`;
+      });
+
+      // Batch-Check via Shopify nodes(ids) — 100 per Request
+      const stale: any[] = [];
+      const CHUNK = 100;
+      for (let i = 0; i < gids.length; i += CHUNK) {
+        const chunk = gids.slice(i, i + CHUNK);
+        const data = await shopifyGql<any>(
+          `query CheckNodes($ids: [ID!]!) { nodes(ids: $ids) { ... on Product { id } } }`,
+          { ids: chunk }
+        );
+        const nodes: any[] = data?.nodes || [];
+        // nodes[i] is null when the product is gone
+        for (let j = 0; j < chunk.length; j++) {
+          if (nodes[j] === null) stale.push(linked[i + j]);
+        }
+      }
+
+      if (dryRun) {
+        res.json({
+          dry_run: true,
+          total_linked: linked.length,
+          stale_count: stale.length,
+          sample: stale.slice(0, 20).map(p => ({ id: p.id, title: p.title, external_id: p.external?.id })),
+        });
+        return;
+      }
+
+      const deleted: string[] = [];
+      const failed: Array<{ id: string; error: string }> = [];
+      const CONCURRENCY = 5;
+      let cursor = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, stale.length) }).map(async () => {
+          while (true) {
+            const i = cursor++;
+            if (i >= stale.length) return;
+            const p = stale[i];
+            try {
+              await pf(`/shops/${shopId()}/products/${p.id}.json`, { method: "DELETE" });
+              deleted.push(p.id);
+            } catch (e: any) {
+              failed.push({ id: p.id, error: e.message });
+            }
+          }
+        })
+      );
+
+      res.json({
+        total_linked: linked.length,
+        stale_count: stale.length,
+        deleted: deleted.length,
+        failed: failed.length,
+        failedDetails: failed.slice(0, 20),
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
