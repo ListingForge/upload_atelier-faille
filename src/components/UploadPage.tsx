@@ -318,15 +318,22 @@ export default function UploadPage() {
             fetch(`/api/printify/products/${encodeURIComponent(pr.id)}/shopify-id`, { credentials: "include" }).catch(() => null),
             fetch(`/api/sh/find-product?${new URLSearchParams({ title: shopifyTitle, vendor: "Printify" })}`, { credentials: "include" }).catch(() => null),
           ]);
-          if (pfRes?.ok) {
+          // WICHTIG: der Printify-Endpoint gibt 202 zurück wenn external.id noch nicht
+          // gesetzt ist — `ok` ist dann TRUE, aber `shopifyProductId` fehlt. Nur brechen
+          // wenn wir echt eine ID haben (Status 200 + Feld gefüllt).
+          if (pfRes?.status === 200) {
             const j = await pfRes.json();
-            shopifyProductId = j.shopifyProductId;
-            break;
+            if (j?.shopifyProductId) {
+              shopifyProductId = j.shopifyProductId;
+              break;
+            }
           }
           if (shRes?.ok) {
             const j = await shRes.json();
-            shopifyProductId = j.shopifyProductId;
-            break;
+            if (j?.shopifyProductId) {
+              shopifyProductId = j.shopifyProductId;
+              break;
+            }
           }
           // 5xx auf shopify-search ist hart-fatal (nicht bloss "noch nicht da")
           if (shRes && shRes.status >= 500) {
