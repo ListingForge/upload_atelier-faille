@@ -74,7 +74,9 @@ async function downscaleImage(file: Blob, maxEdge: number, mime = "image/jpeg", 
 // Photopea selbst serialisiert intern über den Singleton-Iframe — mehr Items
 // bringen aber trotzdem viel, weil Printify-Uploads, Shopify-Polling und
 // Bild-Uploads parallel zum Rendern anderer Items ablaufen können.
-const ITEM_CONCURRENCY = 4;
+// Reduziert von 4 auf 2 — sonst hat Printifys Publish-Queue (async) nicht
+// hinterhergekommen und Produkte hingen unpublished fest.
+const ITEM_CONCURRENCY = 2;
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
   let cursor = 0;
@@ -310,7 +312,7 @@ export default function UploadPage() {
         const shopifyTitle = `${productTitle} — ${type === "stretched" ? "Leinwand" : "Gerahmt"}`;
         let shopifyProductId: string | null = null;
         const pollStart = Date.now();
-        const pollMax = 5 * 60 * 1000;
+        const pollMax = 10 * 60 * 1000;
         while (Date.now() - pollStart < pollMax) {
           const [pfRes, shRes] = await Promise.all([
             fetch(`/api/printify/products/${encodeURIComponent(pr.id)}/shopify-id`, { credentials: "include" }).catch(() => null),
@@ -334,7 +336,7 @@ export default function UploadPage() {
           await new Promise(res => setTimeout(res, 5000));
         }
         if (!shopifyProductId) {
-          throw new Error(`${type}: Produkt nach 5 min nicht in Shopify gefunden — Mockups nicht angebracht`);
+          throw new Error(`${type}: Produkt nach 10 min nicht in Shopify gefunden — Mockups nicht angebracht`);
         }
         log(id, `${type}: Produkt gefunden in Shopify (${shopifyProductId})`);
         log(id, `${type}: lade ${out.length} Mockups zu Shopify (${shopifyProductId})…`);

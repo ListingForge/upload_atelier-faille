@@ -186,7 +186,7 @@ export function createPrintifyRouter(): Router {
   });
 
   // Poll Printify until the product has its mockups generated. Best-effort — don't error out.
-  async function waitForProductMockups(productId: string, maxWaitMs = 120_000) {
+  async function waitForProductMockups(productId: string, maxWaitMs = 300_000) {
     const start = Date.now();
     let interval = 4_000;
     while (Date.now() - start < maxWaitMs) {
@@ -237,6 +237,134 @@ export function createPrintifyRouter(): Router {
         body: JSON.stringify(body),
       });
       res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Admin: alle noch-nicht-published Produkte holen ────────────────────
+  // Bricht in 25er-Seiten durch — Printify default limit ist 10.
+  async function fetchAllProducts(): Promise<any[]> {
+    const all: any[] = [];
+    let page = 1;
+    while (true) {
+      const res = await pf<any>(`/shops/${shopId()}/products.json?limit=25&page=${page}`);
+      const chunk: any[] = res.data || [];
+      all.push(...chunk);
+      if (chunk.length < 25) break;
+      page++;
+      if (page > 200) break; // Sicherheitsgrenze: max 5000 Produkte
+    }
+    return all;
+  }
+
+  // Printify markiert `visible: false` und `external: null` bei unveröffentlichten.
+  // Wir prüfen beides zusätzlich zu `is_locked` (locked bedeutet: in publish-Queue).
+  function isUnpublished(p: any): boolean {
+    return !p?.external?.id && !p?.is_locked;
+  }
+
+  // Admin-Endpunkt: löscht alle unveröffentlichten Produkte (optional ab Datum).
+  // Query: ?since=YYYY-MM-DD  (optional — sonst alle unpublished).
+  //        &dry_run=1         (dry-run, listet nur, löscht nichts).
+  router.post("/admin/delete-unpublished", async (req, res) => {
+    try {
+      const sinceStr = String(req.query.since || "");
+      const dryRun = String(req.query.dry_run || "") === "1";
+      const sinceTs = sinceStr ? Date.parse(sinceStr) : 0;
+
+      const products = await fetchAllProducts();
+      const targets = products.filter(p => {
+        if (!isUnpublished(p)) return false;
+        if (!sinceTs) return true;
+        const created = Date.parse(p.created_at || "");
+        return created >= sinceTs;
+      });
+
+      if (dryRun) {
+        res.json({
+          dry_run: true,
+          total_scanned: products.length,
+          would_delete: targets.length,
+          sample: targets.slice(0, 20).map(p => ({ id: p.id, title: p.title, created_at: p.created_at })),
+        });
+        return;
+      }
+
+      const deleted: string[] = [];
+      const failed: Array<{ id: string; error: string }> = [];
+      // Parallel mit begrenzter Concurrency — Printify rate-limitet bei ca. 10 req/s,
+      // 5 gleichzeitig ist der sichere Sweet Spot für DELETE.
+      const CONCURRENCY = 5;
+      let cursor = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, targets.length) }).map(async () => {
+          while (true) {
+            const i = cursor++;
+            if (i >= targets.length) return;
+            const p = targets[i];
+            try {
+              await pf(`/shops/${shopId()}/products/${p.id}.json`, { method: "DELETE" });
+              deleted.push(p.id);
+            } catch (e: any) {
+              failed.push({ id: p.id, error: e.message });
+            }
+          }
+        })
+      );
+
+      res.json({
+        total_scanned: products.length,
+        matched: targets.length,
+        deleted: deleted.length,
+        failed: failed.length,
+        failedDetails: failed.slice(0, 20),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Admin: Republish aller unveröffentlichten Produkte (feuert Printifys Publish-Call nochmal).
+  router.post("/admin/republish-unpublished", async (req, res) => {
+    try {
+      const dryRun = String(req.query.dry_run || "") === "1";
+      const products = await fetchAllProducts();
+      const targets = products.filter(isUnpublished);
+
+      if (dryRun) {
+        res.json({ dry_run: true, would_republish: targets.length, sample: targets.slice(0, 20).map(p => ({ id: p.id, title: p.title })) });
+        return;
+      }
+
+      const republished: string[] = [];
+      const failed: Array<{ id: string; error: string }> = [];
+      // Parallel mit CONCURRENCY 3 — Publish löst intern Sync-Jobs aus, daher konservativer.
+      const CONCURRENCY = 3;
+      let cursor = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, targets.length) }).map(async () => {
+          while (true) {
+            const i = cursor++;
+            if (i >= targets.length) return;
+            const p = targets[i];
+            try {
+              await pf(`/shops/${shopId()}/products/${p.id}/publish.json`, {
+                method: "POST",
+                body: JSON.stringify({
+                  title: true, description: true, images: false,
+                  variants: true, tags: true, keyFeatures: true, shipping_template: true,
+                }),
+              });
+              republished.push(p.id);
+            } catch (e: any) {
+              failed.push({ id: p.id, error: e.message });
+            }
+          }
+        })
+      );
+
+      res.json({ matched: targets.length, republished: republished.length, failed: failed.length, failedDetails: failed.slice(0, 20) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
