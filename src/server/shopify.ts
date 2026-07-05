@@ -434,20 +434,20 @@ export function createShopifyRouter(): Router {
   return router;
 }
 
-// Maps Printify's inch labels to rounded-cm German labels.
-// e.g. '12" x 18" (Vertical)' → '30 × 45 cm (Hochformat)'
-//      '60" x 40" (Horizontal)' → '150 × 100 cm (Querformat)'
+// Maps Printify's inch labels to nearest-cm German labels (passend zum Theme-Größenguide).
+// e.g. '12" x 18" (Vertical)' → '30 × 46 cm (Hochformat)'
+//      '60" x 40" (Horizontal)' → '152 × 102 cm (Querformat)'
 // Returns null if the label doesn't match the expected pattern.
 function inchLabelToCm(label: string): string | null {
-  const m = /^\s*(\d+(?:\.\d+)?)"\s*x\s*(\d+(?:\.\d+)?)"\s*(?:\((Vertical|Horizontal)\))?\s*$/i.exec(label);
+  // Printify liefert die Zoll-Zeichen uneinheitlich: gerade " , Prime ″ (U+2033),
+  // Single-Prime ′ , doppelte '' , smarte Quotes “ ” — alle als „Zoll" behandeln.
+  // Separator kann x , × oder X sein. Bereits-cm-Labels ("60 × 90 cm …") matchen NICHT
+  // (das " cm" blockiert das optionale Quote-Ende) → idempotent.
+  const m = /^\s*(\d+(?:[.,]\d+)?)\s*["'′″“”‘’]{0,2}\s*[x×X]\s*(\d+(?:[.,]\d+)?)\s*["'′″“”‘’]{0,2}\s*(?:\((Vertical|Horizontal)\))?\s*$/i.exec(label);
   if (!m) return null;
-  const w = roundToFive(parseFloat(m[1]) * 2.54);
-  const h = roundToFive(parseFloat(m[2]) * 2.54);
+  const w = Math.round(parseFloat(m[1].replace(",", ".")) * 2.54);
+  const h = Math.round(parseFloat(m[2].replace(",", ".")) * 2.54);
   const orient = m[3]?.toLowerCase();
   const suffix = orient === "vertical" ? " (Hochformat)" : orient === "horizontal" ? " (Querformat)" : "";
   return `${w} × ${h} cm${suffix}`;
-}
-
-function roundToFive(n: number): number {
-  return Math.round(n / 5) * 5;
 }

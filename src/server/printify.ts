@@ -40,6 +40,8 @@ type Orientation = "vertical" | "horizontal";
 type ProductType = "stretched" | "framed";
 type SizeCode = "XS" | "S" | "M" | "L" | "XL" | "XXL";
 
+type FrameColor = "Black" | "White" | "Espresso" | "Natural";
+
 interface CreateProductInput {
   title: string;
   description: string;
@@ -50,6 +52,7 @@ interface CreateProductInput {
   type: ProductType;       // stretched | framed
   orientation: Orientation;
   sizes?: SizeCode[];      // default: all 6
+  colors?: FrameColor[];   // framed only — default: alle im Katalog (Black, White, Espresso, Natural)
 }
 
 export function createPrintifyRouter(): Router {
@@ -112,15 +115,38 @@ export function createPrintifyRouter(): Router {
         (pricing[input.type] as any[]).map((p: any) => [p.code as SizeCode, Math.round(p.retail * 100)])
       );
 
-      const variants = sizes.map(sizeCode => {
-        const v = cfg.variants[orientation][sizeCode];
-        if (!v) throw new Error(`No variant for ${input.type}/${orientation}/${sizeCode}`);
-        return {
-          id: v.id,
-          price: priceMap.get(sizeCode) ?? 0, // cents
-          is_enabled: true,
-        };
-      });
+      let variants: Array<{ id: number; price: number; is_enabled: boolean }>;
+      if (input.type === "framed") {
+        // Gerahmt: Varianten über Größe × Rahmenfarbe. Farbe wählbar (default: alle im Katalog).
+        const available: FrameColor[] = cfg.frameColors || ["Black"];
+        const colors: FrameColor[] =
+          input.colors && input.colors.length
+            ? input.colors.filter((c) => available.includes(c))
+            : available;
+        if (!colors.length) throw new Error(`No valid frame colors for ${input.type}`);
+        variants = [];
+        for (const sizeCode of sizes) {
+          const entry = cfg.variants[orientation][sizeCode];
+          if (!entry || !entry.colors) throw new Error(`No variant for ${input.type}/${orientation}/${sizeCode}`);
+          const price = priceMap.get(sizeCode) ?? 0; // cents — pro Größe, farbunabhängig
+          for (const color of colors) {
+            const id = entry.colors[color];
+            if (!id) throw new Error(`No variant for framed/${orientation}/${sizeCode}/${color}`);
+            variants.push({ id, price, is_enabled: true });
+          }
+        }
+      } else {
+        // Leinwand (stretched): eine Variante pro Größe.
+        variants = sizes.map((sizeCode) => {
+          const v = cfg.variants[orientation][sizeCode];
+          if (!v) throw new Error(`No variant for ${input.type}/${orientation}/${sizeCode}`);
+          return {
+            id: v.id,
+            price: priceMap.get(sizeCode) ?? 0, // cents
+            is_enabled: true,
+          };
+        });
+      }
 
       const body = {
         title: input.title,

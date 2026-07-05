@@ -30,23 +30,24 @@
     "printProviderId": 105,
     "printProviderTitle": "Jondo",
     "depth": "1.25\"",
-    "frameColor": "Black",
+    "frameColors": ["Black", "White", "Espresso", "Natural"],
+    "frameColorLabelsDe": { "Black": "Schwarz", "White": "Weiß", "Espresso": "Espresso", "Natural": "Natur" },
     "variants": {
       "vertical": {
-        "XS":  { "id": 111829, "size": "12\" x 18\" (Vertical)" },
-        "S":   { "id": 111837, "size": "16\" x 24\" (Vertical)" },
-        "M":   { "id": 88295,  "size": "20\" x 30\" (Vertical)" },
-        "L":   { "id": 88297,  "size": "24\" x 36\" (Vertical)" },
-        "XL":  { "id": 88299,  "size": "32\" x 48\" (Vertical)" },
-        "XXL": { "id": 112718, "size": "40\" x 60\" (Vertical)" }
+        "XS":  { "size": "12\" x 18\" (Vertical)", "colors": { "Black": 111829, "White": 111832, "Espresso": 111830, "Natural": 244030 } },
+        "S":   { "size": "16\" x 24\" (Vertical)", "colors": { "Black": 111837, "White": 111840, "Espresso": 111838, "Natural": 244033 } },
+        "M":   { "size": "20\" x 30\" (Vertical)", "colors": { "Black": 88295,  "White": 107259, "Espresso": 107258, "Natural": 244038 } },
+        "L":   { "size": "24\" x 36\" (Vertical)", "colors": { "Black": 88297,  "White": 107263, "Espresso": 107262, "Natural": 244042 } },
+        "XL":  { "size": "32\" x 48\" (Vertical)", "colors": { "Black": 88299,  "White": 107267, "Espresso": 107266, "Natural": 244046 } },
+        "XXL": { "size": "40\" x 60\" (Vertical)", "colors": { "Black": 112718, "White": 112721, "Espresso": 112719, "Natural": 244047 } }
       },
       "horizontal": {
-        "XS":  { "id": 111825, "size": "18\" x 12\" (Horizontal)" },
-        "S":   { "id": 111833, "size": "24\" x 16\" (Horizontal)" },
-        "M":   { "id": 88285,  "size": "30\" x 20\" (Horizontal)" },
-        "L":   { "id": 88287,  "size": "36\" x 24\" (Horizontal)" },
-        "XL":  { "id": 88289,  "size": "48\" x 32\" (Horizontal)" },
-        "XXL": { "id": 112948, "size": "60\" x 40\" (Horizontal)" }
+        "XS":  { "size": "18\" x 12\" (Horizontal)", "colors": { "Black": 111825, "White": 111828, "Espresso": 111826, "Natural": 244006 } },
+        "S":   { "size": "24\" x 16\" (Horizontal)", "colors": { "Black": 111833, "White": 111836, "Espresso": 111834, "Natural": 244009 } },
+        "M":   { "size": "30\" x 20\" (Horizontal)", "colors": { "Black": 88285,  "White": 107239, "Espresso": 107238, "Natural": 244012 } },
+        "L":   { "size": "36\" x 24\" (Horizontal)", "colors": { "Black": 88287,  "White": 107243, "Espresso": 107242, "Natural": 244017 } },
+        "XL":  { "size": "48\" x 32\" (Horizontal)", "colors": { "Black": 88289,  "White": 107247, "Espresso": 107246, "Natural": 244021 } },
+        "XXL": { "size": "60\" x 40\" (Horizontal)", "colors": { "Black": 112948, "White": 112951, "Espresso": 112949, "Natural": 244024 } }
       }
     }
   }
