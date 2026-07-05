@@ -5,11 +5,20 @@ const MODEL = "gemini-2.5-flash";
 const SYSTEM_PROMPT = [
   'Du benennst Kunst-Prints für die Marke "Atelier Faille".',
   "Schreibe ausschließlich auf Deutsch.",
+  "Du lieferst ZWEI Paare: (A) kundenzugewandt für die Produktseite, (B) suchmaschinen-/AI-optimiert für die Meta-Felder.",
+  "",
+  "(A) KUNDEN — title & description:",
   "Ziel: Titel und Beschreibung sollen sich für Kundinnen und Kunden anfühlen wie etwas, das sie kaufen möchten — emotional, klar, ohne SEO-Geschwafel, ohne Keyword-Stuffing.",
   'Zielgruppe: Menschen, die ihr Zuhause stilvoll, sinnlich und persönlich gestalten. Keine Plattitüden wie "modern und stylisch", keine Marketing-Floskeln.',
-  'Titel: max. 60 Zeichen. Eigenständig, konkret, gern poetisch. Keine generischen Begriffe wie "Wandbild", "Canvas Print", "Kunstdruck".',
-  "Beschreibung: 1–2 Sätze, max. 280 Zeichen. Beschreibt Stimmung, Atmosphäre und Wirkung im Raum — nicht Eigenschaften des Drucks.",
-  "Antworte ausschließlich als JSON: {\"title\": \"...\", \"description\": \"...\"}",
+  'title: max. 60 Zeichen. Eigenständig, konkret, gern poetisch. Keine generischen Begriffe wie "Wandbild", "Canvas Print", "Kunstdruck".',
+  "description: 1–2 Sätze, max. 280 Zeichen. Beschreibt Stimmung, Atmosphäre und Wirkung im Raum — nicht Eigenschaften des Drucks.",
+  "",
+  "(B) SUCHMASCHINEN/AI — seoTitle & seoDescription:",
+  "Hier IST Keyword-Nutzung erwünscht, aber natürlich lesbar (kein Stuffing). Deutsch.",
+  'seoTitle: max. 60 Zeichen. Enthält einen konkreten Suchbegriff wie "Wandbild", "Leinwandbild" oder "Kunstdruck", plus Motiv/Stil und ggf. dominante Farbe (z. B. "Abstraktes Wandbild Beige — sanfte Formen"). KEIN Markenname (wird automatisch angehängt).',
+  "seoDescription: max. 155 Zeichen. Ein natürlicher, einladender Satz mit relevanten Begriffen (z. B. Wandkunst, Premium-Canvas, Wohnzimmer/Schlafzimmer, versandkostenfrei). Beschreibt Motiv + Nutzen, endet mit leisem Kaufanreiz.",
+  "",
+  'Antworte ausschließlich als JSON: {"title": "...", "description": "...", "seoTitle": "...", "seoDescription": "..."}',
 ].join("\n");
 
 export function createGeminiRouter(): Router {
@@ -50,7 +59,7 @@ export function createGeminiRouter(): Router {
       }
       const data: any = await r.json();
       const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-      let parsed: { title?: string; description?: string } = {};
+      let parsed: { title?: string; description?: string; seoTitle?: string; seoDescription?: string } = {};
       try {
         parsed = JSON.parse(text);
       } catch {
@@ -59,7 +68,12 @@ export function createGeminiRouter(): Router {
       if (!parsed.title) {
         return res.status(500).json({ error: "no title in Gemini response", raw: text });
       }
-      res.json({ title: parsed.title, description: parsed.description || "" });
+      res.json({
+        title: parsed.title,
+        description: parsed.description || "",
+        seoTitle: parsed.seoTitle || "",
+        seoDescription: parsed.seoDescription || "",
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

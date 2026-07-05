@@ -174,7 +174,7 @@ export default function UploadPage() {
             log(id, `Gemini fehlgeschlagen: ${await r.text()}`);
             return null;
           }
-          const g: { title?: string; description?: string } = await r.json();
+          const g: { title?: string; description?: string; seoTitle?: string; seoDescription?: string } = await r.json();
           if (g.title) {
             updateItem(id, { title: g.title });
             log(id, `Titel: „${g.title}"`);
@@ -383,6 +383,33 @@ export default function UploadPage() {
         } catch (e: any) {
           log(id, `${type}: cm-Relabel Fehler: ${e.message}`);
         }
+
+        // SEO-Felder (Suchmaschinen-Titel + Meta-Description) setzen.
+        // Kunden-Titel (product.title) bleibt unberührt und freundlich.
+        try {
+          const typeSuffix = type === "stretched" ? "Leinwand" : "Gerahmt";
+          const baseSeoTitle = (gemini?.seoTitle || productTitle).trim();
+          // Marke hängt das Theme selbst an (<title>) → hier ohne "Atelier Faille".
+          const seoTitle = `${baseSeoTitle} – ${typeSuffix}`.slice(0, 65);
+          const seoDescription = (
+            gemini?.seoDescription?.trim() ||
+            `${(gemini?.description || productTitle).trim()} Premium-Canvas, kuratierte Wandkunst — versandkostenfrei aus Deutschland (DE·AT·CH).`
+          ).slice(0, 160);
+          const seoR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ seo: { title: seoTitle, description: seoDescription } }),
+          });
+          if (!seoR.ok) {
+            log(id, `${type}: SEO-Felder setzen fehlgeschlagen: ${await seoR.text()}`);
+          } else {
+            log(id, `${type}: SEO-Titel/-Description gesetzt`);
+          }
+        } catch (e: any) {
+          log(id, `${type}: SEO-Fehler: ${e.message}`);
+        }
+
         return pr.id as string;
       };
 
