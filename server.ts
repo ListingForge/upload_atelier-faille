@@ -9,6 +9,7 @@ import { createMockupsRouter } from "./src/server/mockups";
 import { createPrintifyRouter } from "./src/server/printify";
 import { createShopifyRouter } from "./src/server/shopify";
 import { createGeminiRouter } from "./src/server/gemini";
+import { createRenderRouter } from "./src/server/renderRoutes";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config();
@@ -46,6 +47,9 @@ app.use("/api/sh", createShopifyRouter());
 
 // Gemini (image → customer-friendly title + description)
 app.use("/api/gemini", createGeminiRouter());
+
+// Server-seitiges Mockup-Rendering (Preview, headless)
+app.use("/api/render", createRenderRouter());
 
 // Vite & App Entrypoint
 const startServer = async () => {

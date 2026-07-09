@@ -107,6 +107,24 @@ function isOrientation(s: string): s is Orientation {
   return s === "vertical" || s === "horizontal";
 }
 
+// Mockup-Datei + Metadaten per orientation+id auflösen (für Render/Pipeline).
+export function resolveMockupFile(
+  orientation: string,
+  id: string
+): { path: string; kind: MockupKind; item: MockupItem } | null {
+  if (!isOrientation(orientation)) return null;
+  const item = loadIndex()[orientation].find(i => i.id === id);
+  if (!item) return null;
+  const fp = path.join(MOCKUP_DIR, orientation, item.filename);
+  if (!fs.existsSync(fp)) return null;
+  return { path: fp, kind: item.kind, item };
+}
+
+// Beide Listen roh laden (für die Pipeline-Orchestrierung).
+export function getMockupLists(): Index {
+  return loadIndex();
+}
+
 function kindFor(mime: string, filename: string): MockupKind {
   if (mime === "image/vnd.adobe.photoshop" || mime === "application/x-photoshop" || /\.psd$/i.test(filename)) {
     return "psd";
