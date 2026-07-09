@@ -118,6 +118,10 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 const MOCKUP_MAX_EDGE = 1200;
 const MOCKUP_WEBP_QUALITY = 0.85;
 
+// Bricht NIE die Upload-Kette: schlägt der Canvas-Encode fehl (Browser ohne
+// WebP-Encode, null von toBlob), fällt es auf JPEG und zuletzt auf das
+// Originalbild zurück. Vorher warf ein fehlgeschlagener Encode → leeres out[]
+// → Batch mit 0 Bildern → Produkt-Variante schlug fehl.
 async function toWebpMockup(blob: Blob, maxEdge = MOCKUP_MAX_EDGE, quality = MOCKUP_WEBP_QUALITY): Promise<Blob> {
   const url = URL.createObjectURL(blob);
   try {
@@ -137,9 +141,14 @@ async function toWebpMockup(blob: Blob, maxEdge = MOCKUP_MAX_EDGE, quality = MOC
     const ctx = canvas.getContext("2d");
     if (!ctx) return blob;
     ctx.drawImage(img, 0, 0, w, h);
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(b => (b ? resolve(b) : reject(new Error("toBlob (webp) failed"))), "image/webp", quality);
-    });
+    const encode = (type: string) =>
+      new Promise<Blob | null>(resolve => canvas.toBlob(b => resolve(b), type, quality));
+    // Manche Browser ignorieren webp und liefern PNG → Typ prüfen, sonst JPEG.
+    let out = await encode("image/webp");
+    if (!out || out.type !== "image/webp") out = await encode("image/jpeg");
+    return out && out.size > 0 ? out : blob;
+  } catch {
+    return blob;
   } finally {
     URL.revokeObjectURL(url);
   }
