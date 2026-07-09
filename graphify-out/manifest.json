@@ -1,0 +1,162 @@
+{
+  "data/pricing.json": {
+    "mtime": 1781101882.5187213,
+    "ast_hash": "09ec2f4013c3967eb6634be8b080df59",
+    "semantic_hash": ""
+  },
+  "data/printify-catalog.json": {
+    "mtime": 1783248153.4902642,
+    "ast_hash": "8bbc9ad11aea10dc36feff1e0c5bf7fc",
+    "semantic_hash": ""
+  },
+  "metadata.json": {
+    "mtime": 1781088686.0,
+    "ast_hash": "0c41eddb99111a5c7dce2a052e36c02a",
+    "semantic_hash": ""
+  },
+  "package.json": {
+    "mtime": 1782972202.7320395,
+    "ast_hash": "01a844ee3adbc0039adbe34e860e2721",
+    "semantic_hash": ""
+  },
+  "scripts/sync-mockups.sh": {
+    "mtime": 1782919519.7530792,
+    "ast_hash": "d4fd2543f1e8229bb2a96957c0cc59b5",
+    "semantic_hash": ""
+  },
+  "scripts/watch-mockups.mjs": {
+    "mtime": 1782972189.6443155,
+    "ast_hash": "556ed8397ba38a5191895704682525da",
+    "semantic_hash": ""
+  },
+  "server.ts": {
+    "mtime": 1782757323.0826383,
+    "ast_hash": "01ee11ddfdf7610acf80772a7385b4cc",
+    "semantic_hash": ""
+  },
+  "src/App.tsx": {
+    "mtime": 1782818428.754075,
+    "ast_hash": "6a47459972a6b62065a260d9624ecb52",
+    "semantic_hash": ""
+  },
+  "src/components/BulkEditorPage.tsx": {
+    "mtime": 1782973834.259756,
+    "ast_hash": "23126241fc4f7a60a8edcae7f48fbf43",
+    "semantic_hash": ""
+  },
+  "src/components/EditorPage.tsx": {
+    "mtime": 1781103205.435603,
+    "ast_hash": "f243cb30ae85dca37a87993fb87ca722",
+    "semantic_hash": ""
+  },
+  "src/components/MockupListsPage.tsx": {
+    "mtime": 1782973139.7343946,
+    "ast_hash": "273a65f70cadbd3233fa9c8a623ee067",
+    "semantic_hash": ""
+  },
+  "src/components/MockupRenderPage.tsx": {
+    "mtime": 1781104127.9253616,
+    "ast_hash": "b96540de9f743433df1fe848924f86a1",
+    "semantic_hash": ""
+  },
+  "src/components/UploadPage.tsx": {
+    "mtime": 1783594990.777238,
+    "ast_hash": "bf237147bc5068408979423ab494dd47",
+    "semantic_hash": ""
+  },
+  "src/lib/photopea.ts": {
+    "mtime": 1782756259.5537174,
+    "ast_hash": "2230bbb4b5f9eb0c75626c800331bd71",
+    "semantic_hash": ""
+  },
+  "src/main.tsx": {
+    "mtime": 1781088686.0,
+    "ast_hash": "2b36426d5ad7e08ef79746aa524f4fb7",
+    "semantic_hash": ""
+  },
+  "src/server/basicAuth.ts": {
+    "mtime": 1782729834.238158,
+    "ast_hash": "56a4dfe99fb609e8006c7220729f1353",
+    "semantic_hash": ""
+  },
+  "src/server/gemini.ts": {
+    "mtime": 1783250034.922541,
+    "ast_hash": "34c72c3768e82969ffbca36d33fd1593",
+    "semantic_hash": ""
+  },
+  "src/server/mockups.ts": {
+    "mtime": 1782923636.8613737,
+    "ast_hash": "a7c82457759592fd5e15ad9891ec2e40",
+    "semantic_hash": ""
+  },
+  "src/server/printify.ts": {
+    "mtime": 1783248172.366801,
+    "ast_hash": "b8e8e5e41c679b61575299f1560647f6",
+    "semantic_hash": ""
+  },
+  "src/server/shopify.ts": {
+    "mtime": 1783248616.4548035,
+    "ast_hash": "d1f3ba1e06afac4bddb32d2942559e1a",
+    "semantic_hash": ""
+  },
+  "src/server/shopifyOAuth.ts": {
+    "mtime": 1781099157.0870643,
+    "ast_hash": "3d58167aaa3199eb1ee919921e127f12",
+    "semantic_hash": ""
+  },
+  "src/server/tokenStore.ts": {
+    "mtime": 1781099054.82316,
+    "ast_hash": "4c750ebfdd8b80ecf045d779fe1f49ba",
+    "semantic_hash": ""
+  },
+  "src/types.ts": {
+    "mtime": 1781101912.369201,
+    "ast_hash": "9b81f0587db261a787da3d56d7282aa7",
+    "semantic_hash": ""
+  },
+  "tsconfig.json": {
+    "mtime": 1781088686.0,
+    "ast_hash": "8827451c4e35790dd3f3538c265e7d15",
+    "semantic_hash": ""
+  },
+  "vite.config.ts": {
+    "mtime": 1781088686.0,
+    "ast_hash": "9c319043c25764dfe83b687f74637c6c",
+    "semantic_hash": ""
+  },
+  ".claude/agents/code-reviewer.md": {
+    "mtime": 1781096463.0870833,
+    "ast_hash": "faea0de2a4e95fe5a673498830218b33",
+    "semantic_hash": ""
+  },
+  ".claude/agents/dsgvo-privacy-reviewer.md": {
+    "mtime": 1781096595.8273087,
+    "ast_hash": "64776ed94bc5faa042c850b0c24eccf6",
+    "semantic_hash": ""
+  },
+  ".claude/agents/security-auditor.md": {
+    "mtime": 1781096730.3741279,
+    "ast_hash": "9c4bbe068035e0e24f91c81eb73a9d10",
+    "semantic_hash": ""
+  },
+  ".github/workflows/deploy.yml": {
+    "mtime": 1782972532.2509315,
+    "ast_hash": "f451bf45642a5d634f914eab99ab4683",
+    "semantic_hash": ""
+  },
+  "DEPLOY.md": {
+    "mtime": 1781703449.9323537,
+    "ast_hash": "4c62d88f83d678ee1c21c391f54e6276",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1781088686.0,
+    "ast_hash": "c5e4e4e946548a6da583ee55c7b30d87",
+    "semantic_hash": ""
+  },
+  "index.html": {
+    "mtime": 1782756419.8817008,
+    "ast_hash": "115bcca0b399449ebbee191512deee87",
+    "semantic_hash": ""
+  }
+}
