@@ -103,6 +103,48 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+// Mockups, die zu Shopify gehen: auf 1200 px (lange Kante) verkleinern und als
+// WebP kodieren. Die PSD-Renders kommen in voller Auflösung (~2400 px, ~0,5 MB) —
+// für PDP-Bilder unnötig groß. WebP @1200 drückt das auf einen Bruchteil.
+const MOCKUP_MAX_EDGE = 1200;
+const MOCKUP_WEBP_QUALITY = 0.85;
+
+async function toWebpMockup(blob: Blob, maxEdge = MOCKUP_MAX_EDGE, quality = MOCKUP_WEBP_QUALITY): Promise<Blob> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = url;
+    });
+    const long = Math.max(img.width, img.height);
+    const scale = long > maxEdge ? maxEdge / long : 1;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return blob;
+    ctx.drawImage(img, 0, 0, w, h);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(b => (b ? resolve(b) : reject(new Error("toBlob (webp) failed"))), "image/webp", quality);
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export default function UploadPage() {
   const [lists, setLists] = useState<MockupLists>({ vertical: [], horizontal: [] });
   const [items, setItems] = useState<PendingImage[]>([]);
@@ -197,12 +239,7 @@ export default function UploadPage() {
           // erst in der Upload-Phase und kann dort still fehlschlagen.
           try {
             const blob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const r = new FileReader();
-              r.onload = () => resolve(String(r.result));
-              r.onerror = reject;
-              r.readAsDataURL(blob);
-            });
+            const dataUrl = await blobToDataUrl(await toWebpMockup(blob));
             out.push({ src: dataUrl, itemId: m.id });
           } catch (e: any) {
             log(id, `Statisches Mockup ${m.originalName} konnte nicht geladen werden: ${e.message}`);
@@ -222,12 +259,7 @@ export default function UploadPage() {
           try {
             log(id, attempt === 1 ? `Rendere ${m.originalName}…` : `Wiederhole ${m.originalName} (Versuch ${attempt}/${maxAttempts})…`);
             const { blob } = await renderer.render({ psd: psdBlob, image: renderImage });
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const r = new FileReader();
-              r.onload = () => resolve(String(r.result));
-              r.onerror = reject;
-              r.readAsDataURL(blob);
-            });
+            const dataUrl = await blobToDataUrl(await toWebpMockup(blob));
             out.push({ src: dataUrl, itemId: m.id });
             lastErr = null;
             break;
@@ -352,7 +384,7 @@ export default function UploadPage() {
         // Array = Position im Shopify-Produkt. Staged uploads laufen serverseitig parallel.
         const batchImages = out.map((m, i) => ({
           dataUrl: m.src,
-          filename: `${productTitle}-${type}-${i + 1}.png`,
+          filename: `${productTitle}-${type}-${i + 1}.webp`,
         }));
         const batchR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/images/batch`, {
           method: "POST",
