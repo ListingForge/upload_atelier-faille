@@ -526,11 +526,44 @@ export default function UploadPage() {
         <p className="text-xs text-slate-500 mt-1">PNG / JPG / WebP — Format wird automatisch erkannt</p>
       </div>
 
-      <div className="space-y-3">
-        {items.map(it => (
-          <ItemRow key={it.id} item={it} onRemove={removeItem} onRun={runOne} />
-        ))}
-      </div>
+      {items.length > 0 && (() => {
+        const total = items.length;
+        const done = items.filter(i => i.stage === "done").length;
+        const failed = items.filter(i => i.stage === "failed").length;
+        const pending = items.filter(i => i.stage === "pending").length;
+        const running = total - done - failed - pending;
+        const finished = done + failed;
+        const pct = Math.round((finished / total) * 100);
+        return (
+          <div className="bg-white border border-slate-200 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-slate-900">{finished} / {total} verarbeitet</span>
+              <span className="text-sm text-slate-500 font-mono">{pct}%</span>
+            </div>
+            <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-indigo-600 transition-all duration-500" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs font-medium">
+              <span className="text-emerald-600">{done} fertig</span>
+              {running > 0 && <span className="text-indigo-600">{running} laufen</span>}
+              {pending > 0 && <span className="text-slate-500">{pending} wartend</span>}
+              {failed > 0 && <span className="text-rose-600">{failed} fehlgeschlagen</span>}
+            </div>
+            {/* Nur Fehler werden gelistet (Text, keine Bild-Previews) — der Rest läuft still durch. */}
+            {failed > 0 && (
+              <div className="mt-3 border-t border-slate-100 pt-3 space-y-1 max-h-48 overflow-y-auto">
+                {items.filter(i => i.stage === "failed").map(i => (
+                  <div key={i.id} className="flex items-start gap-2 text-xs">
+                    <AlertCircle className="w-3 h-3 text-rose-500 shrink-0 mt-0.5" />
+                    <span className="font-medium text-slate-700 shrink-0 max-w-[40%] truncate">{i.title}</span>
+                    <span className="text-rose-500 truncate">{i.error}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
