@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Upload, Image as ImageIcon, Loader2, X, Play, CheckCircle2, AlertCircle } from "lucide-react";
 import type { MockupItem, MockupLists, Orientation } from "../types";
 import { getRenderer } from "../lib/photopea";
@@ -15,25 +15,21 @@ interface PendingImage {
   title: string;
   stage: Stage;
   log: string[];
-  generatedMockups: { src: string; itemId: string }[];
+  // url = Blob-URL nur für die Anzeige (leichter State als base64-DataURL);
+  // blob = das eigentliche Bild, wird erst beim Shopify-Upload zu base64 konvertiert.
+  generatedMockups: { url: string; blob: Blob; itemId: string }[];
   shopifyProductIds?: string[];
   error?: string;
 }
 
-function detectOrientation(file: File): Promise<{ orientation: Orientation; w: number; h: number }> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ orientation: img.naturalWidth >= img.naturalHeight ? "horizontal" : "vertical", w: img.naturalWidth, h: img.naturalHeight });
-    };
-    img.onerror = e => {
-      URL.revokeObjectURL(url);
-      reject(e);
-    };
-    img.src = url;
-  });
+async function detectOrientation(file: File): Promise<{ orientation: Orientation; w: number; h: number }> {
+  // createImageBitmap dekodiert off-main-thread (kein <img>+ObjectURL-Umweg).
+  const bmp = await createImageBitmap(file);
+  try {
+    return { orientation: bmp.width >= bmp.height ? "horizontal" : "vertical", w: bmp.width, h: bmp.height };
+  } finally {
+    bmp.close();
+  }
 }
 
 async function fetchBlob(url: string): Promise<Blob> {
@@ -43,30 +39,24 @@ async function fetchBlob(url: string): Promise<Blob> {
 }
 
 async function downscaleImage(file: Blob, maxEdge: number, mime = "image/jpeg", quality = 0.9): Promise<Blob> {
-  const url = URL.createObjectURL(file);
+  const bmp = await createImageBitmap(file);
   try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = reject;
-      i.src = url;
-    });
-    const long = Math.max(img.width, img.height);
+    const long = Math.max(bmp.width, bmp.height);
     if (long <= maxEdge) return file;
     const scale = maxEdge / long;
-    const w = Math.round(img.width * scale);
-    const h = Math.round(img.height * scale);
+    const w = Math.round(bmp.width * scale);
+    const h = Math.round(bmp.height * scale);
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
-    ctx.drawImage(img, 0, 0, w, h);
+    ctx.drawImage(bmp, 0, 0, w, h);
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(b => (b ? resolve(b) : reject(new Error("toBlob failed"))), mime, quality);
     });
   } finally {
-    URL.revokeObjectURL(url);
+    bmp.close();
   }
 }
 
@@ -123,24 +113,19 @@ const MOCKUP_WEBP_QUALITY = 0.85;
 // Originalbild zurück. Vorher warf ein fehlgeschlagener Encode → leeres out[]
 // → Batch mit 0 Bildern → Produkt-Variante schlug fehl.
 async function toWebpMockup(blob: Blob, maxEdge = MOCKUP_MAX_EDGE, quality = MOCKUP_WEBP_QUALITY): Promise<Blob> {
-  const url = URL.createObjectURL(blob);
+  let bmp: ImageBitmap | null = null;
   try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = reject;
-      i.src = url;
-    });
-    const long = Math.max(img.width, img.height);
+    bmp = await createImageBitmap(blob);
+    const long = Math.max(bmp.width, bmp.height);
     const scale = long > maxEdge ? maxEdge / long : 1;
-    const w = Math.round(img.width * scale);
-    const h = Math.round(img.height * scale);
+    const w = Math.round(bmp.width * scale);
+    const h = Math.round(bmp.height * scale);
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return blob;
-    ctx.drawImage(img, 0, 0, w, h);
+    ctx.drawImage(bmp, 0, 0, w, h);
     const encode = (type: string) =>
       new Promise<Blob | null>(resolve => canvas.toBlob(b => resolve(b), type, quality));
     // Manche Browser ignorieren webp und liefern PNG → Typ prüfen, sonst JPEG.
@@ -150,7 +135,7 @@ async function toWebpMockup(blob: Blob, maxEdge = MOCKUP_MAX_EDGE, quality = MOC
   } catch {
     return blob;
   } finally {
-    URL.revokeObjectURL(url);
+    bmp?.close();
   }
 }
 
@@ -189,15 +174,25 @@ export default function UploadPage() {
     setItems(prev => [...prev, ...created]);
   }, []);
 
-  const updateItem = (id: string, patch: Partial<PendingImage>) => {
+  const updateItem = useCallback((id: string, patch: Partial<PendingImage>) => {
     setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patch } : it)));
-  };
-  const log = (id: string, msg: string) =>
-    setItems(prev => prev.map(it => (it.id === id ? { ...it, log: [...it.log, msg] } : it)));
+  }, []);
+  const log = useCallback((id: string, msg: string) =>
+    setItems(prev => prev.map(it => (it.id === id ? { ...it, log: [...it.log, msg] } : it))), []);
 
-  const removeItem = (id: string) => setItems(prev => prev.filter(it => it.id !== id));
+  // Beim Entfernen die Blob-URLs freigeben (Vorschau + Mockups) — sonst leaken sie bis Reload.
+  const removeItem = useCallback((id: string) => {
+    setItems(prev => {
+      const it = prev.find(x => x.id === id);
+      if (it) {
+        try { URL.revokeObjectURL(it.previewUrl); } catch { /* ignore */ }
+        it.generatedMockups.forEach(m => { try { URL.revokeObjectURL(m.url); } catch { /* ignore */ } });
+      }
+      return prev.filter(x => x.id !== id);
+    });
+  }, []);
 
-  const runOne = async (item: PendingImage) => {
+  const runOne = useCallback(async (item: PendingImage) => {
     const id = item.id;
     try {
       // Determine orientation
@@ -241,15 +236,17 @@ export default function UploadPage() {
       updateItem(id, { stage: "mockups" });
       log(id, `Generiere ${list.filter(l => l.kind === "psd").length} dynamische Mockups + ${list.filter(l => l.kind === "image").length} statische`);
       const renderer = getRenderer();
-      const out: { src: string; itemId: string }[] = [];
+      // Alte Mockup-Blob-URLs eines Re-Runs freigeben, bevor neue erzeugt werden.
+      item.generatedMockups?.forEach(m => { try { URL.revokeObjectURL(m.url); } catch { /* ignore */ } });
+      const out: { url: string; blob: Blob; itemId: string }[] = [];
       for (const m of list) {
         if (m.kind === "image") {
           // Statisches Bild sofort zu dataURL — sonst passiert der Netz-Fetch
           // erst in der Upload-Phase und kann dort still fehlschlagen.
           try {
             const blob = await fetchBlob(`/api/mockups/${orientation}/${m.id}/file`);
-            const dataUrl = await blobToDataUrl(await toWebpMockup(blob));
-            out.push({ src: dataUrl, itemId: m.id });
+            const webp = await toWebpMockup(blob);
+            out.push({ url: URL.createObjectURL(webp), blob: webp, itemId: m.id });
           } catch (e: any) {
             log(id, `Statisches Mockup ${m.originalName} konnte nicht geladen werden: ${e.message}`);
           }
@@ -268,8 +265,8 @@ export default function UploadPage() {
           try {
             log(id, attempt === 1 ? `Rendere ${m.originalName}…` : `Wiederhole ${m.originalName} (Versuch ${attempt}/${maxAttempts})…`);
             const { blob } = await renderer.render({ psd: psdBlob, image: renderImage });
-            const dataUrl = await blobToDataUrl(await toWebpMockup(blob));
-            out.push({ src: dataUrl, itemId: m.id });
+            const webp = await toWebpMockup(blob);
+            out.push({ url: URL.createObjectURL(webp), blob: webp, itemId: m.id });
             lastErr = null;
             break;
           } catch (e: any) {
@@ -291,12 +288,15 @@ export default function UploadPage() {
         log(id, `Master-Bild für Printify auf max 9000 px skaliert (${(printImage.size / 1024 / 1024).toFixed(1)} MB)`);
       }
       log(id, "Lade Master-Bild zu Printify…");
-      const base64 = await blobToBase64(printImage);
+      // Binär als multipart hochladen statt base64-JSON: kein +33%-Payload und kein
+      // Riesen-String im Browser-Heap. Der Server macht base64 für Printify.
+      const upFd = new FormData();
+      upFd.append("name", item.file.name);
+      upFd.append("file", printImage, item.file.name);
       const upR = await fetch("/api/printify/uploads", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: item.file.name, contents: base64 }),
+        body: upFd,
       });
       if (!upR.ok) throw new Error(`Printify upload: ${await upR.text()}`);
       const up: any = await upR.json();
@@ -391,10 +391,13 @@ export default function UploadPage() {
 
         // Alle Mockups in einer productCreateMedia-Mutation → Reihenfolge im
         // Array = Position im Shopify-Produkt. Staged uploads laufen serverseitig parallel.
-        const batchImages = out.map((m, i) => ({
-          dataUrl: m.src,
-          filename: `${productTitle}-${type}-${i + 1}.webp`,
-        }));
+        // Mockups liegen als Blob im State (leichter) → erst hier zu DataURL für Shopify.
+        const batchImages = await Promise.all(
+          out.map(async (m, i) => ({
+            dataUrl: await blobToDataUrl(m.blob),
+            filename: `${productTitle}-${type}-${i + 1}.webp`,
+          })),
+        );
         const batchR = await fetch(`/api/sh/products/${encodeURIComponent(shopifyProductId)}/images/batch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -468,7 +471,7 @@ export default function UploadPage() {
       updateItem(id, { stage: "failed", error: e.message });
       log(id, `FEHLER: ${e.message}`);
     }
-  };
+  }, [lists, updateItem, log]);
 
   const runAll = async () => {
     setBusy(true);
@@ -525,14 +528,14 @@ export default function UploadPage() {
 
       <div className="space-y-3">
         {items.map(it => (
-          <ItemRow key={it.id} item={it} onRemove={() => removeItem(it.id)} onRun={() => runOne(it)} />
+          <ItemRow key={it.id} item={it} onRemove={removeItem} onRun={runOne} />
         ))}
       </div>
     </div>
   );
 }
 
-function ItemRow({ item, onRun, onRemove }: { item: PendingImage; onRun: () => void; onRemove: () => void }) {
+const ItemRow = memo(function ItemRow({ item, onRun, onRemove }: { item: PendingImage; onRun: (item: PendingImage) => void; onRemove: (id: string) => void }) {
   const stageLabel: Record<Stage, string> = {
     pending: "Bereit",
     detecting: "Erkenne Format…",
@@ -591,10 +594,10 @@ function ItemRow({ item, onRun, onRemove }: { item: PendingImage; onRun: () => v
           )}
         </div>
         <div className="flex flex-col gap-1 shrink-0">
-          <button onClick={onRun} disabled={item.stage !== "pending" && item.stage !== "failed"} className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 text-white disabled:bg-slate-300 cursor-pointer">
+          <button onClick={() => onRun(item)} disabled={item.stage !== "pending" && item.stage !== "failed"} className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 text-white disabled:bg-slate-300 cursor-pointer">
             {item.stage === "done" ? <CheckCircle2 className="w-4 h-4 inline" /> : item.stage === "pending" || item.stage === "failed" ? "Start" : <Loader2 className="w-4 h-4 inline animate-spin" />}
           </button>
-          <button onClick={onRemove} className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer">
+          <button onClick={() => onRemove(item.id)} className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer">
             <X className="w-4 h-4 inline" />
           </button>
         </div>
@@ -603,11 +606,11 @@ function ItemRow({ item, onRun, onRemove }: { item: PendingImage; onRun: () => v
         <div className="border-t border-slate-100 p-3 grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 bg-slate-50">
           {item.generatedMockups.map((m, i) => (
             <div key={i} className="aspect-square rounded overflow-hidden bg-slate-100">
-              <img src={m.src} alt={`mockup ${i}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={m.url} alt={`mockup ${i}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ))}
         </div>
       )}
     </div>
   );
-}
+});

@@ -1,9 +1,13 @@
 import express, { type Router } from "express";
+import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { shopifyGql } from "./shopify";
 
 const API_BASE = "https://api.printify.com/v1";
+
+// Master-Bild kommt jetzt binär (multipart) statt base64-JSON → im RAM halten, hier base64en.
+const uploadMem = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
 
 function token(): string {
   const t = process.env.PRINTIFY_API_TOKEN;
@@ -83,12 +87,17 @@ export function createPrintifyRouter(): Router {
     }
   });
 
-  // Upload an image to Printify's image library. Accepts JSON { name, url } or { name, contents (base64) }.
-  router.post("/uploads", async (req, res) => {
+  // Upload an image to Printify's image library. Accepts:
+  //  - multipart: field "file" (+ optional "name")  ← bevorzugt, Browser sendet binär
+  //  - JSON { name, url } oder { name, contents (base64) }  ← Rückwärtskompatibilität
+  router.post("/uploads", uploadMem.single("file"), async (req, res) => {
     try {
-      const { name, url, contents } = req.body || {};
+      const file = (req as any).file as { buffer: Buffer; originalname: string } | undefined;
+      const name = req.body?.name || file?.originalname;
+      const url = req.body?.url;
+      const contents = file ? file.buffer.toString("base64") : req.body?.contents;
       if (!name || (!url && !contents)) {
-        return res.status(400).json({ error: "name and url|contents required" });
+        return res.status(400).json({ error: "name and url|contents|file required" });
       }
       const data = await pf("/uploads/images.json", {
         method: "POST",
