@@ -555,9 +555,14 @@ function ItemRow({ item, onRun, onRemove }: { item: PendingImage; onRun: () => v
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    // content-visibility:auto → Browser überspringt Layout/Paint/Bild-Decode für Rows
+    // außerhalb des Sichtfelds. Bei vielen Uploads drastisch weniger Speicher/CPU.
+    <div
+      className="bg-white border border-slate-200 rounded-xl overflow-hidden"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 140px" }}
+    >
       <div className="flex gap-4 p-4">
-        <img src={item.previewUrl} alt="" className="w-24 h-24 object-cover rounded-lg shrink-0" />
+        <img src={item.previewUrl} alt="" loading="lazy" decoding="async" className="w-24 h-24 object-cover rounded-lg shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <p className="font-semibold text-slate-900 truncate">{item.title}</p>
@@ -598,7 +603,7 @@ function ItemRow({ item, onRun, onRemove }: { item: PendingImage; onRun: () => v
         <div className="border-t border-slate-100 p-3 grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 bg-slate-50">
           {item.generatedMockups.map((m, i) => (
             <div key={i} className="aspect-square rounded overflow-hidden bg-slate-100">
-              <img src={m.src} alt={`mockup ${i}`} className="w-full h-full object-cover" />
+              <img src={m.src} alt={`mockup ${i}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ))}
         </div>
