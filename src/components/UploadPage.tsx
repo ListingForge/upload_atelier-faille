@@ -102,6 +102,20 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+// Rohe (Midjourney-)Dateinamen in einen lesbaren Titel wandeln: Endung + UUID +
+// Unterstriche + einzelne Zahlen raus, Title-Case. Nur als Fallback wenn Gemini scheitert.
+function humanizeFilename(name: string): string {
+  const cleaned = name
+    .replace(/\.[^.]+$/, "")
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\d+\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, c => c.toUpperCase());
+  return cleaned || "Abstraktes Werk";
+}
+
 // Mockups, die zu Shopify gehen: auf 1200 px (lange Kante) verkleinern und als
 // WebP kodieren. Die PSD-Renders kommen in voller Auflösung (~2400 px, ~0,5 MB) —
 // für PDP-Bilder unnötig groß. WebP @1200 drückt das auf einen Bruchteil.
@@ -206,30 +220,38 @@ export default function UploadPage() {
         log(id, `Bild für Render auf max 4500 px skaliert (${(renderImage.size / 1024 / 1024).toFixed(1)} MB)`);
       }
 
-      // Gemini parallel zum Rendern starten — Titel ist früh fertig
+      // Gemini parallel zum Rendern starten — Titel ist früh fertig.
+      // Mit Retry: schlägt Gemini fehl, landete früher der rohe Dateiname als Titel+Beschreibung
+      // im Shop. 3 Versuche mit Backoff reduzieren das drastisch.
       const geminiPromise = (async () => {
-        try {
-          const b64 = await blobToBase64(renderImage);
-          const r = await fetch("/api/gemini/title", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ imageBase64: b64, mimeType: renderImage.type || "image/jpeg" }),
-          });
-          if (!r.ok) {
-            log(id, `Gemini fehlgeschlagen: ${await r.text()}`);
+        const maxAttempts = 3;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            const b64 = await blobToBase64(renderImage);
+            const r = await fetch("/api/gemini/title", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ imageBase64: b64, mimeType: renderImage.type || "image/jpeg" }),
+            });
+            if (!r.ok) {
+              log(id, `Gemini Versuch ${attempt}/${maxAttempts} fehlgeschlagen: ${await r.text()}`);
+              if (attempt < maxAttempts) { await new Promise(res => setTimeout(res, 1500 * attempt)); continue; }
+              return null;
+            }
+            const g: { title?: string; description?: string; seoTitle?: string; seoDescription?: string } = await r.json();
+            if (g.title) {
+              updateItem(id, { title: g.title });
+              log(id, `Titel: „${g.title}"`);
+            }
+            return g;
+          } catch (e: any) {
+            log(id, `Gemini Versuch ${attempt}/${maxAttempts} Fehler: ${e.message}`);
+            if (attempt < maxAttempts) { await new Promise(res => setTimeout(res, 1500 * attempt)); continue; }
             return null;
           }
-          const g: { title?: string; description?: string; seoTitle?: string; seoDescription?: string } = await r.json();
-          if (g.title) {
-            updateItem(id, { title: g.title });
-            log(id, `Titel: „${g.title}"`);
-          }
-          return g;
-        } catch (e: any) {
-          log(id, `Gemini-Fehler: ${e.message}`);
-          return null;
         }
+        return null;
       })();
 
       // 1) Run mockups via Photopea
@@ -304,8 +326,11 @@ export default function UploadPage() {
       log(id, `Printify image_id ${printifyImageId}`);
 
       // 2b) Gemini-Ergebnis abwarten (lief parallel zum Rendern)
-      let productTitle = item.title;
-      let productDescription = `<p>${item.title}</p>`;
+      // Fallback NIE der rohe Dateiname: früher landete bei Gemini-Fehler ein Midjourney-
+      // Dateiname (mit UUID/Unterstrichen) als Titel UND Beschreibung im Shop. Jetzt:
+      // gesäuberter Dateiname als Titel + generische DE-Beschreibung.
+      let productTitle = humanizeFilename(item.file.name);
+      let productDescription = "<p>Ein abstraktes Kunstwerk in ruhiger, erdiger Ästhetik — ein Blickfang, der Ihrem Raum Tiefe und stille Eleganz verleiht.</p>";
       const gemini = await geminiPromise;
       if (gemini?.title) productTitle = gemini.title;
       if (gemini?.description) productDescription = `<p>${gemini.description}</p>`;
