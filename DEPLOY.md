@@ -144,7 +144,61 @@ npm run build
 sudo systemctl restart atelier-faille-upload
 ```
 
-## 9. Optional: GitHub Actions Auto-Deploy
+## 9. Remote-MCP für claude.ai (Web-Connector)
+
+Die App stellt einen Remote-MCP-Endpoint bereit, mit dem Claude im Browser
+(claude.ai) Designs fernsteuern und hochladen kann. Auth läuft über einen
+eingebauten OAuth-2.1-Server (getrennt von Basic Auth — claude.ai kann kein
+Basic Auth senden).
+
+**a) Env ergänzen** in `/var/www/atelier-faille-upload/.env.local`:
+
+```env
+MCP_OAUTH_SECRET=<openssl rand -hex 32>
+MCP_LOGIN_PASSWORD=<passwort-das-du-beim-connector-login-eingibst>
+```
+
+`APP_URL` muss korrekt gesetzt sein (`https://upload.atelier-faille.de`) — daraus
+wird Issuer + Resource (`APP_URL/mcp`) abgeleitet. Danach
+`sudo systemctl restart atelier-faille-upload`.
+
+**b) nginx**: Die vorhandene `location /` proxyt bereits alle MCP-Pfade
+(`/mcp`, `/authorize`, `/token`, `/register`, `/.well-known/*`). Für den
+MCP-Stream Buffering abschalten — Block VOR `location /` einfügen:
+
+```nginx
+    location /mcp {
+        proxy_pass http://127.0.0.1:3001;   # tatsächlicher App-Port (Prod: 3001)
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 900s;   # upload_design pollt bis zu 10 min auf Shopify
+    }
+```
+
+`sudo nginx -t && sudo systemctl reload nginx`.
+
+**c) In claude.ai verbinden**: Einstellungen → Connectors → *Custom Connector
+hinzufügen* → URL `https://upload.atelier-faille.de/mcp` → Claude startet den
+OAuth-Flow → Login-Seite erscheint → `MCP_LOGIN_PASSWORD` eingeben → fertig.
+Danach stehen die Tools `list_mockups`, `render_preview`, `upload_design` im
+Chat zur Verfügung. `upload_design` ohne `dryRun` erstellt **echte** Produkte im
+Live-Shop.
+
+**Smoke-Test** (ohne Browser):
+
+```bash
+curl https://upload.atelier-faille.de/.well-known/oauth-protected-resource
+# -> JSON mit resource=https://upload.atelier-faille.de/mcp
+curl -i -X POST https://upload.atelier-faille.de/mcp
+# -> 401 + Header  WWW-Authenticate: Bearer resource_metadata="..."
+```
+
+> Der separate stdio-Server unter `mcp/` bleibt für **Claude Desktop / Claude
+> Code** (lokal). Der Remote-Endpoint hier ist ausschließlich für claude.ai-Web.
+
+## 10. Optional: GitHub Actions Auto-Deploy
 
 In `.github/workflows/deploy.yml` (später, wenn Du es magst):
 

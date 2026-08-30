@@ -5,6 +5,13 @@ import type { Request, Response, NextFunction } from "express";
 const PUBLIC_PATHS = [
   "/api/shopify/install",
   "/api/shopify/callback",
+  // Remote-MCP (claude.ai): eigene OAuth-2.1-/Bearer-Auth statt Basic Auth.
+  "/mcp",
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-authorization-server",
+  "/register",
+  "/authorize",
+  "/token",
 ];
 
 function isPublic(req: Request): boolean {

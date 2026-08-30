@@ -11,12 +11,20 @@ import { createShopifyRouter } from "./src/server/shopify";
 import { createGeminiRouter } from "./src/server/gemini";
 import { createRenderRouter } from "./src/server/renderRoutes";
 import { createPipelineRouter } from "./src/server/pipeline";
+import { createMcpOAuthRouter } from "./src/server/mcpOAuth";
+import { createMcpHttpRouter } from "./src/server/mcpHttp";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: "1024mb" }));
+
+// Remote-MCP für claude.ai-Web-Connector: eigene OAuth-2.1-Auth (Bearer), daher
+// VOR basicAuth gemountet — claude.ai kann kein Basic Auth senden.
+app.use("/", createMcpOAuthRouter());
+app.use("/mcp", createMcpHttpRouter());
+
 app.use(basicAuth);
 
 const PORT = Number(process.env.PORT) || 3000;
