@@ -12,6 +12,39 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import fs from "fs";
 
+// Timeout + Backoff auf 429/5xx (Uploader-Review U2). Kein TS-Import moeglich
+// (eigenständiges mjs), daher hier inline gehalten.
+const RETRY_ON = new Set([408, 429, 500, 502, 503, 504]);
+async function fetchWithRetry(url, init = {}, { timeoutMs = 45000, retries = 3, label = "fetch" } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      clearTimeout(timer);
+      if (attempt < retries && RETRY_ON.has(res.status)) {
+        const ra = Number(res.headers.get("retry-after"));
+        const wait = !Number.isNaN(ra) && ra > 0 ? Math.min(ra * 1000, 30000) : Math.min(1000 * 2 ** attempt, 15000);
+        console.error(`[retry] ${label} HTTP ${res.status} -> warte ${wait}ms (${attempt + 1}/${retries + 1})`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = e;
+      if (attempt < retries) {
+        const wait = Math.min(1000 * 2 ** attempt, 15000);
+        console.error(`[retry] ${label} ${e.name || "Fehler"} -> warte ${wait}ms (${attempt + 1}/${retries + 1})`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(`fetchWithRetry(${label}) fehlgeschlagen`);
+}
+
 const BASE = (process.env.UPLOAD_BASE_URL || "").replace(/\/$/, "");
 const USER = process.env.UPLOAD_USER || "";
 const PASS = process.env.UPLOAD_PASS || "";
@@ -27,11 +60,10 @@ function authHeader() {
 }
 
 async function api(path, init = {}) {
-  const r = await fetch(`${BASE}${path}`, {
+  return fetchWithRetry(`${BASE}${path}`, {
     ...init,
     headers: { ...authHeader(), ...(init.headers || {}) },
-  });
-  return r;
+  }, { label: "upload-app", timeoutMs: 120000, retries: 3 });
 }
 
 // Bild-Input auflösen: base64, dataUrl, lokaler Pfad oder http(s)-URL -> base64.
@@ -42,7 +74,7 @@ async function resolveImageBase64({ imageBase64, imagePath, imageUrl }) {
   }
   if (imagePath) return fs.readFileSync(imagePath).toString("base64");
   if (imageUrl) {
-    const r = await fetch(imageUrl);
+    const r = await fetchWithRetry(imageUrl, {}, { label: "image-url", timeoutMs: 30000, retries: 2 });
     if (!r.ok) throw new Error(`Bild-URL ${imageUrl} -> ${r.status}`);
     return Buffer.from(await r.arrayBuffer()).toString("base64");
   }

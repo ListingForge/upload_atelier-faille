@@ -3,6 +3,7 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { shopifyGql } from "./shopify";
+import { fetchWithRetry } from "./retry";
 
 const API_BASE = "https://api.printify.com/v1";
 
@@ -21,14 +22,14 @@ function shopId(): string {
 }
 
 async function pf<T = any>(p: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`${API_BASE}${p}`, {
+  const r = await fetchWithRetry(`${API_BASE}${p}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token()}`,
       "Content-Type": "application/json",
       ...(init?.headers || {}),
     },
-  });
+  }, { label: "printify", timeoutMs: 60_000, retries: 3 });
   if (!r.ok) throw new Error(`Printify ${r.status}: ${await r.text()}`);
   return r.json() as Promise<T>;
 }

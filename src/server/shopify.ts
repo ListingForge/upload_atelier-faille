@@ -1,5 +1,6 @@
 import express, { type Router } from "express";
 import { getShopifyToken } from "./tokenStore";
+import { fetchWithRetry } from "./retry";
 
 const API_VERSION = "2026-04";
 
@@ -18,14 +19,14 @@ export async function shopifyGql<T = any>(query: string, variables?: any): Promi
 }
 async function gql<T = any>(query: string, variables?: any): Promise<T> {
   const { shop, token } = activeShop();
-  const r = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
+  const r = await fetchWithRetry(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
     headers: {
       "X-Shopify-Access-Token": token,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
-  });
+  }, { label: "shopify-gql", timeoutMs: 45_000, retries: 3 });
   if (!r.ok) throw new Error(`Shopify ${r.status}: ${await r.text()}`);
   const json: any = await r.json();
   if (json.errors) throw new Error(JSON.stringify(json.errors));

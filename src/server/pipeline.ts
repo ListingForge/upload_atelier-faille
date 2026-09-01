@@ -23,10 +23,19 @@ function authHeader(): Record<string, string> {
 }
 
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    ...init,
-    headers: { ...authHeader(), ...(init.headers || {}) },
-  });
+  // localhost self-call: kein Retry (Bodies sind teils grosse base64-Bilder,
+  // ein Retry wuerde doppelt hochladen), aber ein Timeout gegen haengende Calls.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 180_000);
+  try {
+    return await fetch(`${BASE}${path}`, {
+      ...init,
+      signal: ctrl.signal,
+      headers: { ...authHeader(), ...(init.headers || {}) },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function decodeBase64(input: string): Buffer {
@@ -211,7 +220,11 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
         if (shRes && shRes.status >= 500) throw new Error(`Shopify-Suche-Fehler ${shRes.status}`);
         await new Promise(r => setTimeout(r, 5000));
       }
-      if (!shopifyProductId) throw new Error("Produkt nach 10 min nicht in Shopify gefunden");
+      if (!shopifyProductId) {
+        push(`${type}: WARN - Printify-Produkt ${printifyId} ist erstellt+published, aber nach 10 min nicht in Shopify sichtbar. `
+          + `Mockups/SEO NICHT angehaengt. Kein Neuanlegen bei einem erneuten Lauf noetig - erst pruefen ob ${title} - ${suffix} inzwischen im Shop ist.`);
+        return { type, printifyId, error: "shopify_link_pending" };
+      }
       push(`${type}: in Shopify gefunden (${shopifyProductId})`);
 
       // Mockups anhängen
