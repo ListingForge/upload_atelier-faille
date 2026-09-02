@@ -1,13 +1,14 @@
 // Server-seitiges Mockup-Rendering ohne Browser/Photopea.
 //
 // Ersetzt den Smart-Object-Inhalt eines Mockup-PSDs durch ein Design und
-// flattened das Ergebnis per @napi-rs/canvas. Deckt die aktuellen Atelier-
-// Faille-Mockups ab: flache (achsenparallele) Smart-Objects mit multiply-Blend
-// über einem Hintergrund, plus Lighting-Overlays.
+// flattened das Ergebnis per @napi-rs/canvas. Das Design wird per Affin-
+// Transform auf die 4 Ecken des Smart-Objects gelegt — deckt achsenparallele
+// UND rotierte/gescherte Platzierungen exakt ab (der komplette Atelier-Faille-
+// Bestand ist affin, skew 0). Multiply-Blend über Hintergrund + Lighting-Overlays.
 //
-// Für PSDs mit echtem Perspektiv-Warp (nonAffine mit gebogenen Kanten) ist der
-// Canvas-Weg nicht pixelgenau — solche Mockups können später auf den Photopea-
-// Fallback (renderMockupPhotopea) geroutet werden. Aktueller Bestand ist flach.
+// Für PSDs mit echtem Perspektiv-Warp (nonAffine, gebogene Kanten) reicht die
+// Affin-Abbildung nicht — solche Mockups bräuchten eine Homographie/Mesh oder
+// den Photopea-Fallback. Aktueller Bestand hat keine echte Perspektive.
 
 import fs from "fs";
 import { readPsd, initializeCanvas, type Layer } from "ag-psd";
@@ -52,12 +53,12 @@ function blendOp(mode?: string): string {
   return BLEND_MAP[(mode || "normal").toLowerCase()] || "source-over";
 }
 
-// Achsenparalleles Rechteck aus dem Smart-Object-Transform (8 Werte, 4 Ecken).
-function transformRect(t: number[]): { x: number; y: number; w: number; h: number } {
-  const xs = [t[0], t[2], t[4], t[6]];
-  const ys = [t[1], t[3], t[5], t[7]];
-  const x = Math.min(...xs), y = Math.min(...ys);
-  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+// Smart-Object-Transform (8 Werte) -> die 4 Eckpunkte in Foto-Reihenfolge
+// TL, TR, BR, BL (ag-psd liefert sie so). Trägt Rotation/Scherung, nicht nur
+// die Bounding-Box.
+interface Quad { tl: [number, number]; tr: [number, number]; br: [number, number]; bl: [number, number]; }
+function transformQuad(t: number[]): Quad {
+  return { tl: [t[0], t[1]], tr: [t[2], t[3]], br: [t[4], t[5]], bl: [t[6], t[7]] };
 }
 
 function findSmartObject(layers: Layer[] | undefined): Layer | null {
@@ -71,19 +72,27 @@ function findSmartObject(layers: Layer[] | undefined): Layer | null {
   return null;
 }
 
-// Design so skalieren, dass es das Rechteck vollständig bedeckt (cover), dann
-// zentriert — entspricht Photopeas max(sx,sy)-Resize + Zentrierung.
-function drawDesignCover(
-  ctx: any,
-  design: Canvas | any,
-  rect: { x: number; y: number; w: number; h: number }
-) {
+// Design cover-fit in das (evtl. rotierte) Smart-Object-Quad zeichnen.
+// Der Canvas wird in den lokalen Rahmen des Quads transformiert (TL = Ursprung,
+// x-Achse entlang TL->TR, y-Achse entlang TL->BL), dann das Design im lokalen
+// Rechteck [0,0,qw,qh] cover-skaliert + zentriert + geclippt. So folgt es der
+// Rotation/Scherung der Leinwand statt frontal-flach zu sitzen.
+function drawDesignInQuad(ctx: any, design: Canvas | any, q: Quad) {
+  const ux = q.tr[0] - q.tl[0], uy = q.tr[1] - q.tl[1]; // Oberkante TL->TR
+  const vx = q.bl[0] - q.tl[0], vy = q.bl[1] - q.tl[1]; // linke Kante TL->BL
+  const qw = Math.hypot(ux, uy), qh = Math.hypot(vx, vy);
+  if (qw < 1 || qh < 1) return;
+  ctx.save();
+  // lokal -> Welt: (px,py) -> TL + px*(u/qw) + py*(v/qh)
+  ctx.transform(ux / qw, uy / qw, vx / qh, vy / qh, q.tl[0], q.tl[1]);
+  ctx.beginPath();
+  ctx.rect(0, 0, qw, qh);
+  ctx.clip();
   const dw = design.width, dh = design.height;
-  const scale = Math.max(rect.w / dw, rect.h / dh);
+  const scale = Math.max(qw / dw, qh / dh);
   const w = dw * scale, h = dh * scale;
-  const dx = rect.x + (rect.w - w) / 2;
-  const dy = rect.y + (rect.h - h) / 2;
-  ctx.drawImage(design, dx, dy, w, h);
+  ctx.drawImage(design, (qw - w) / 2, (qh - h) / 2, w, h);
+  ctx.restore();
 }
 
 // Rekursiv in z-Reihenfolge (ag-psd children: unten -> oben) auf die Ziel-
@@ -92,7 +101,7 @@ function compositeLayers(
   ctx: any,
   layers: Layer[],
   soLayer: Layer,
-  soRect: { x: number; y: number; w: number; h: number },
+  soQuad: Quad,
   design: Canvas | any
 ) {
   for (const l of layers) {
@@ -101,14 +110,11 @@ function compositeLayers(
     if (op <= 0) continue;
 
     if (l === soLayer) {
-      // Design ins SO-Rechteck, mit dem Blend/Opacity des Smart-Objects.
+      // Design ins SO-Quad (affin), mit dem Blend/Opacity des Smart-Objects.
       ctx.save();
       ctx.globalAlpha = op;
       ctx.globalCompositeOperation = blendOp(l.blendMode);
-      ctx.beginPath();
-      ctx.rect(soRect.x, soRect.y, soRect.w, soRect.h);
-      ctx.clip();
-      drawDesignCover(ctx, design, soRect);
+      drawDesignInQuad(ctx, design, soQuad);
       ctx.restore();
       continue;
     }
@@ -117,7 +123,7 @@ function compositeLayers(
       // Gruppe (i.d.R. pass-through). Kinder direkt weiter compositen.
       // Nicht-normale Gruppen-Blends und Gruppen-Opacity werden vereinfacht
       // (ausreichend für die aktuellen Mockups).
-      compositeLayers(ctx, l.children, soLayer, soRect, design);
+      compositeLayers(ctx, l.children, soLayer, soQuad, design);
       continue;
     }
 
@@ -158,13 +164,13 @@ export async function renderMockup(
   if (!so || !(so as any).placedLayer?.transform) {
     throw new Error("Kein Smart-Object mit Transform im PSD gefunden");
   }
-  const soRect = transformRect((so as any).placedLayer.transform);
+  const soQuad = transformQuad((so as any).placedLayer.transform);
 
   const design = await loadImage(designBuf);
 
   const full = createCanvas(W, H);
   const fctx = full.getContext("2d");
-  compositeLayers(fctx as any, psd.children || [], so, soRect, design);
+  compositeLayers(fctx as any, psd.children || [], so, soQuad, design);
 
   const long = Math.max(W, H);
   const scale = long > maxEdge ? maxEdge / long : 1;
