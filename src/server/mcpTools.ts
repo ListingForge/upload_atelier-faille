@@ -126,15 +126,17 @@ export function buildMcpServer(): McpServer {
       imageUrl: z.string().optional(),
       driveFileId: z.string().optional().describe("Google-Drive-Datei-ID"),
       filename: z.string().optional(),
+      title: z.string().optional().describe("Produkttitel manuell setzen; überschreibt Gemini (spart den Gemini-Call)"),
       scope: z.enum(["auto", "vertical", "horizontal", "both"]).optional().describe("welche Mockup-Listen (default auto)"),
       publish: z.boolean().optional().describe("zu Shopify publishen (default true)"),
       dryRun: z.boolean().optional().describe("nur rendern, keine Produkte anlegen (default false)"),
     },
-    async ({ imageBase64, imageUrl, driveFileId, filename, scope, publish, dryRun }) => {
+    async ({ imageBase64, imageUrl, driveFileId, filename, title, scope, publish, dryRun }) => {
       const designBuf = await resolveDesign({ imageBase64, imageUrl, driveFileId });
       const result = await runPipeline({
         imageBase64: designBuf.toString("base64"),
         filename,
+        title,
         scope,
         publish,
         dryRun,

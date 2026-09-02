@@ -49,6 +49,7 @@ async function scaleToJpeg(buf: Buffer, maxEdge: number, quality = 90): Promise<
 export interface PipelineInput {
   imageBase64: string;
   filename?: string;
+  title?: string;      // gesetzt = überschreibt Gemini, Gemini-Call entfällt
   scope?: Scope;
   publish?: boolean;   // default true — bei false nur Printify-Produkt anlegen, nicht published
   dryRun?: boolean;    // nur rendern + Gemini, keine Printify/Shopify-Writes
@@ -94,27 +95,34 @@ export async function runPipeline(input: PipelineInput): Promise<PipelineResult>
   const orientation: Orientation = dim.width >= dim.height ? "horizontal" : "vertical";
   push(`Orientation: ${orientation} (${dim.width}x${dim.height})`);
 
-  // 2) Gemini-Titel (best effort)
+  // 2) Titel: gesetzter title überschreibt Gemini (deterministisch, kein API-Call)
   let title = filename.replace(/\.[^.]+$/, "");
   let description = `<p>${title}</p>`;
   let seoTitle = "", seoDescription = "";
-  try {
-    const gjpg = await scaleToJpeg(designBuf, 1600);
-    const gr = await api("/api/gemini/title", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageBase64: gjpg.toString("base64"), mimeType: "image/jpeg" }),
-    });
-    if (gr.ok) {
-      const g: any = await gr.json();
-      if (g.title) { title = g.title; description = `<p>${g.description || g.title}</p>`; }
-      seoTitle = g.seoTitle || ""; seoDescription = g.seoDescription || "";
-      push(`Gemini-Titel: „${title}"`);
-    } else {
-      push(`Gemini fehlgeschlagen: ${await gr.text()}`);
+  const manualTitle = input.title?.trim();
+  if (manualTitle) {
+    title = manualTitle;
+    description = `<p>${title}</p>`;
+    push(`Titel gesetzt: „${title}" (Gemini übersprungen)`);
+  } else {
+    try {
+      const gjpg = await scaleToJpeg(designBuf, 1600);
+      const gr = await api("/api/gemini/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: gjpg.toString("base64"), mimeType: "image/jpeg" }),
+      });
+      if (gr.ok) {
+        const g: any = await gr.json();
+        if (g.title) { title = g.title; description = `<p>${g.description || g.title}</p>`; }
+        seoTitle = g.seoTitle || ""; seoDescription = g.seoDescription || "";
+        push(`Gemini-Titel: „${title}"`);
+      } else {
+        push(`Gemini fehlgeschlagen: ${await gr.text()}`);
+      }
+    } catch (e: any) {
+      push(`Gemini-Fehler: ${e.message}`);
     }
-  } catch (e: any) {
-    push(`Gemini-Fehler: ${e.message}`);
   }
 
   // 3) Mockups rendern (direkt, kein Browser)
@@ -249,7 +257,7 @@ export function createPipelineRouter(): Router {
   const router = express.Router();
 
   // POST /api/pipeline/upload
-  // Body: { imageBase64|imageDataUrl, filename?, scope?, publish?, dryRun? }
+  // Body: { imageBase64|imageDataUrl, filename?, title?, scope?, publish?, dryRun? }
   router.post("/upload", async (req, res) => {
     try {
       const body = req.body || {};
@@ -258,6 +266,7 @@ export function createPipelineRouter(): Router {
       const result = await runPipeline({
         imageBase64: String(imageBase64),
         filename: body.filename,
+        title: body.title,
         scope: body.scope,
         publish: body.publish,
         dryRun: body.dryRun,

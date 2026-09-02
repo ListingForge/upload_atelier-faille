@@ -74,14 +74,15 @@ export interface DriveFile {
   mimeType: string;
 }
 
-// Bilddateien in einem Ordner auflisten (inkl. Shared Drives, paginiert).
-export async function driveListImages(folderId: string): Promise<DriveFile[]> {
-  const token = await getAccessToken();
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+// Direkte Kinder eines Ordners auflisten (Bilder + Unterordner), paginiert.
+async function driveListChildren(token: string, folderId: string): Promise<DriveFile[]> {
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
   do {
     const params = new URLSearchParams({
-      q: `'${folderId}' in parents and trashed=false and mimeType contains 'image/'`,
+      q: `'${folderId}' in parents and trashed=false and (mimeType contains 'image/' or mimeType='${FOLDER_MIME}')`,
       fields: "nextPageToken,files(id,name,mimeType)",
       pageSize: "1000",
       orderBy: "name_natural",
@@ -98,6 +99,27 @@ export async function driveListImages(folderId: string): Promise<DriveFile[]> {
     pageToken = j.nextPageToken;
   } while (pageToken);
   return files;
+}
+
+// Bilddateien in einem Ordner auflisten, rekursiv durch Unterordner (max. Tiefe 8;
+// die Kollektionen liegen teils direkt, teils in einem upscayl-Unterordner).
+export async function driveListImages(folderId: string): Promise<DriveFile[]> {
+  const token = await getAccessToken();
+  const images: DriveFile[] = [];
+  const seen = new Set<string>();
+  async function walk(id: string, depth: number): Promise<void> {
+    if (depth > 8 || seen.has(id)) return;
+    seen.add(id);
+    const children = await driveListChildren(token, id);
+    const subfolders: string[] = [];
+    for (const c of children) {
+      if (c.mimeType === FOLDER_MIME) subfolders.push(c.id);
+      else images.push(c);
+    }
+    for (const sub of subfolders) await walk(sub, depth + 1);
+  }
+  await walk(folderId, 0);
+  return images;
 }
 
 // Datei-Inhalt als Buffer holen (alt=media).
