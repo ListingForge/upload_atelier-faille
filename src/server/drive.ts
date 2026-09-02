@@ -1,10 +1,16 @@
 // Google-Drive-Zugriff per Service-Account (read-only).
 //
 // Kein OAuth-Consent-Flow, keine öffentlichen Links: der Service-Account-Key
-// steckt in der Env GOOGLE_SERVICE_ACCOUNT_JSON, und der Drive-Ordner ist mit
-// der Service-Account-Mail als Reader geteilt. JWT wird mit `jose` (RS256)
-// signiert und gegen ein Access-Token getauscht — keine googleapis-Lib nötig.
+// kommt entweder als Pfad (GOOGLE_SERVICE_ACCOUNT_FILE, bevorzugt) oder inline
+// (GOOGLE_SERVICE_ACCOUNT_JSON); der Drive-Ordner ist mit der Service-Account-
+// Mail als Reader geteilt. JWT wird mit `jose` (RS256) signiert und gegen ein
+// Access-Token getauscht — keine googleapis-Lib nötig.
+//
+// WICHTIG: Die Inline-Variante NICHT über systemd EnvironmentFile laden — systemd
+// mangelt die \n-Escapes im PEM-Key, der Key wird unbrauchbar (asn1 header too
+// long). Darum in Prod die FILE-Variante nutzen (nur ein kurzer Pfad in der Env).
 
+import { readFileSync } from "fs";
 import { importPKCS8, SignJWT } from "jose";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -20,23 +26,39 @@ let tokenCache: { token: string; exp: number } | null = null;
 
 function loadServiceAccount(): ServiceAccount {
   if (cachedSa) return cachedSa;
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON nicht gesetzt");
+  const file = process.env.GOOGLE_SERVICE_ACCOUNT_FILE;
+  let raw: string | undefined;
+  let src: string;
+  if (file) {
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch (e: any) {
+      throw new Error(`GOOGLE_SERVICE_ACCOUNT_FILE ${file} nicht lesbar: ${e.message}`);
+    }
+    src = `GOOGLE_SERVICE_ACCOUNT_FILE (${file})`;
+  } else {
+    raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    src = "GOOGLE_SERVICE_ACCOUNT_JSON";
+  }
+  if (!raw) throw new Error("Weder GOOGLE_SERVICE_ACCOUNT_FILE noch GOOGLE_SERVICE_ACCOUNT_JSON gesetzt");
   let parsed: any;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON ist kein gültiges JSON");
+    throw new Error(`${src} ist kein gültiges JSON`);
   }
   if (!parsed.client_email || !parsed.private_key) {
-    throw new Error("Service-Account-JSON fehlt client_email/private_key");
+    throw new Error(`${src}: client_email/private_key fehlt`);
   }
-  cachedSa = { client_email: parsed.client_email, private_key: parsed.private_key };
+  // Defensive: falls \n als Literal (2 Zeichen) durchkommt, zu echten Newlines
+  // machen — sonst scheitert importPKCS8 mit asn1-Fehler.
+  const private_key = String(parsed.private_key).replace(/\\n/g, "\n");
+  cachedSa = { client_email: parsed.client_email, private_key };
   return cachedSa;
 }
 
 export function driveConfigured(): boolean {
-  return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_FILE || process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 }
 
 async function getAccessToken(): Promise<string> {
