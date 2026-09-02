@@ -1,5 +1,5 @@
 import { useState, type ComponentType } from "react";
-import { Upload, LayoutGrid, Pencil, Settings, Flame } from "lucide-react";
+import { Upload, LayoutGrid, Pencil, Settings } from "lucide-react";
 import MockupListsPage from "./components/MockupListsPage";
 import UploadPage from "./components/UploadPage";
 import BulkEditorPage from "./components/BulkEditorPage";
@@ -18,37 +18,46 @@ export default function App() {
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 font-sans">
-      <aside className="w-full lg:w-64 bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col p-6 shrink-0">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="w-9 h-9 rounded-xl bg-indigo-600 grid place-items-center">
-            <Flame className="w-5 h-5 text-white" />
+      <aside className="w-full lg:w-72 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col p-7 shrink-0">
+        <div className="flex items-center gap-3.5 mb-12">
+          <div className="w-10 h-10 bg-slate-900 grid place-items-center shrink-0">
+            <span className="font-display text-white text-lg leading-none tracking-wide">AF</span>
           </div>
-          <div>
-            <h2 className="font-black text-white text-sm tracking-widest uppercase">Atelier Faille</h2>
-            <span className="text-[10px] text-zinc-500 font-mono">Upload Programm</span>
+          <div className="min-w-0">
+            <h2 className="font-display text-slate-900 text-xl leading-tight tracking-wide">Atelier Faille</h2>
+            <span className="eyebrow">Upload Programm</span>
           </div>
         </div>
 
-        <nav className="space-y-1.5">
+        <div className="eyebrow mb-3 px-1">Werkstatt</div>
+        <nav className="space-y-1">
           {NAV.map(({ id, label, icon: Icon }) => {
             const active = tab === id;
             return (
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`w-full px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-3 text-left cursor-pointer transition-colors ${
-                  active ? "bg-indigo-600 text-white" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+                className={`w-full px-4 py-2.5 rounded-lg text-[13px] flex items-center gap-3 text-left cursor-pointer transition-colors ${
+                  active
+                    ? "bg-slate-900 text-white font-medium"
+                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-100 font-normal"
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-4 h-4 shrink-0" />
                 <span>{label}</span>
               </button>
             );
           })}
         </nav>
+
+        <div className="mt-auto pt-8 hidden lg:block">
+          <div className="border-t border-slate-200 pt-4">
+            <p className="eyebrow leading-relaxed">Midjourney → Photopea<br />→ Printify → Shopify</p>
+          </div>
+        </div>
       </aside>
 
-      <main className="flex-1 min-w-0 p-6 md:p-10 overflow-y-auto">
+      <main className="flex-1 min-w-0 p-6 md:p-10 lg:p-12 overflow-y-auto">
         <div hidden={tab !== "upload"}><UploadPage /></div>
         <div hidden={tab !== "mockups"}><MockupListsPage /></div>
         <div hidden={tab !== "editor"}><BulkEditorPage /></div>
@@ -63,7 +72,8 @@ export default function App() {
 function Placeholder({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold text-slate-900 mb-2">{title}</h1>
+      <div className="eyebrow mb-2">Atelier Faille</div>
+      <h1 className="page-h1 mb-3">{title}</h1>
       <p className="text-sm text-slate-500">{hint}</p>
     </div>
   );

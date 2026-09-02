@@ -277,8 +277,9 @@ export default function BulkEditorPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Shopify Bulk Editor</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <div className="eyebrow mb-2">Katalog</div>
+          <h1 className="page-h1">Shopify Bulk Editor</h1>
+          <p className="text-sm text-slate-500 mt-2">
             {products.length} Produkte geladen
             {loadProgress.hasMore && loading ? " (lade weiter…)" : ""}
             {selected.size > 0 ? ` · ${selected.size} ausgewählt` : ""}

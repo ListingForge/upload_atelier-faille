@@ -1,10 +1,41 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
+/*
+  Atelier-Faille-Markenlook (aus Theme/CLAUDE.md):
+  Ivoire #F2EEE8 · Noir #1A1A1A · Pierre #6B6258 · Sand #EDE6D7 · Beige-Hairline #D4C7B5
+  Fonts: Cormorant Garamond (Display) + DM Sans (Body). Ruhig, editorial, „Studio Notes".
+
+  Trick: statt jede Utility-Klasse in allen Komponenten anzufassen, remappen wir hier
+  die Tailwind-Paletten `slate` (Grautöne) auf warmes Greige und `indigo` (Akzent) auf
+  Noir. Damit erbt die gesamte App den Markenlook. `emerald`/`rose` bleiben als
+  Status-Semantik (fertig/fehlgeschlagen) unverändert.
+*/
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Outfit", sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Neutralskala → warmes Greige (Ivoire/Pierre/Noir) */
+  --color-slate-50:  #F5F1EA;
+  --color-slate-100: #ECE5DA;
+  --color-slate-200: #DDD2C1;
+  --color-slate-300: #CBBBA4;
+  --color-slate-400: #A99A83;
+  --color-slate-500: #6B6258;
+  --color-slate-600: #524A40;
+  --color-slate-700: #3D372F;
+  --color-slate-800: #29251F;
+  --color-slate-900: #1A1A1A;
+
+  /* zinc streift der Sidebar-Eyebrow – ebenfalls warm ziehen */
+  --color-zinc-500: #8A7D6A;
+
+  /* Akzent → Noir (Marken-Buttons: Noir auf Ivoire), Sand-Töne für Badges/Ring */
+  --color-indigo-100: #E9E0CF;
+  --color-indigo-400: #9A8B70;
+  --color-indigo-600: #1A1A1A;
+  --color-indigo-700: #2A2620;
 }
 
 @layer base {
@@ -13,11 +44,20 @@
   }
 }
 
-.input {
-  @apply w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 bg-white text-slate-900 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400;
+/* Editoriale Bausteine */
+.eyebrow {
+  @apply text-[10px] font-medium uppercase tracking-[0.28em] text-slate-500;
 }
 
-/* Custom animated gradient for beautiful automation visual indicator */
+.page-h1 {
+  @apply font-display text-[30px] leading-none font-medium tracking-tight text-slate-900;
+}
+
+.input {
+  @apply w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 bg-white text-slate-900 focus:outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900/20;
+}
+
+/* Animierter Verlauf als Automations-Indikator – auf Markentöne umgestellt */
 @keyframes gradient-shift {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -25,12 +65,12 @@
 }
 
 .animate-glow-border {
-  background: linear-gradient(270deg, #f59e0b, #ec4899, #3b82f6, #10b981);
+  background: linear-gradient(270deg, #C9A24B, #6B6258, #1A1A1A, #B08D57);
   background-size: 800% 800%;
   animation: gradient-shift 12s ease infinite;
 }
 
-/* Custom scrollbar utility */
+/* Scrollbar in warmen Tönen */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -39,10 +79,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #CBBBA4;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #A99A83;
 }
-
